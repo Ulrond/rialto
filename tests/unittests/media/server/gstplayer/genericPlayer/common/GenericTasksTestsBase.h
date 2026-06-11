@@ -76,6 +76,7 @@ protected:
     void setContextStreamInfoEmpty();
     void setContextNeedDataAudioOnly();
     void setContextSetupSourceFinished();
+    void setContextAudioInitialPosition();
 
     // SetupElement test methods
     void shouldSetupVideoSinkElementOnly();
@@ -407,6 +408,7 @@ protected:
 
     // RemoveSource test methods
     void shouldInvalidateActiveAudioRequests();
+    void shouldUnrefAudioBuffer();
     void shouldRequestAudioData();
     void triggerRemoveSourceAudio();
     void triggerRemoveSourceVideo();
