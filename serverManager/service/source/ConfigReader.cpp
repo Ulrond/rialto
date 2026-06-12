@@ -60,20 +60,18 @@ bool ConfigReader::read()
     return true;
 }
 
-void ConfigReader::parseEnvironmentVariables(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseEnvironmentVariables(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper>
+                                                 &root)
 {
     m_envVars = getListOfStrings(root, "environmentVariables");
 }
 
-void ConfigReader::parseExtraEnvVariables(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseExtraEnvVariables(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
 {
     m_extraEnvVars = getListOfStrings(root, "extraEnvVariables");
 }
 
-void ConfigReader::parseSessionServerPath(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseSessionServerPath(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
 {
     m_sessionServerPath = getString(root, "sessionServerPath");
 }
@@ -88,8 +86,8 @@ void ConfigReader::parseSessionServerStartupTimeout(
     }
 }
 
-void ConfigReader::parseHealthcheckInterval(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseHealthcheckInterval(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper>
+                                                &root)
 {
     auto interval{getUInt(root, "healthcheckIntervalInSeconds")};
     if (interval.has_value())
@@ -98,8 +96,7 @@ void ConfigReader::parseHealthcheckInterval(
     }
 }
 
-void ConfigReader::parseSocketPermissions(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseSocketPermissions(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
 {
     auto permissions{getUInt(root, "socketPermissions")};
     if (permissions.has_value())
@@ -112,14 +109,12 @@ void ConfigReader::parseSocketPermissions(
     }
 }
 
-void ConfigReader::parseSocketOwner(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseSocketOwner(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
 {
     m_socketOwner = getString(root, "socketOwner");
 }
 
-void ConfigReader::parseSocketGroup(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseSocketGroup(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
 {
     m_socketGroup = getString(root, "socketGroup");
 }
@@ -130,8 +125,7 @@ void ConfigReader::parseNumOfPreloadedServers(
     m_numOfPreloadedServers = getUInt(root, "numOfPreloadedServers");
 }
 
-void ConfigReader::parseLogLevel(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
+void ConfigReader::parseLogLevel(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root)
 {
     std::optional<unsigned> loggingLevel{getUInt(root, "logLevel")};
 
@@ -228,9 +222,9 @@ std::optional<unsigned int> ConfigReader::getNumOfPingsBeforeRecovery()
     return m_numOfPingsBeforeRecovery;
 }
 
-std::list<std::string> ConfigReader::getListOfStrings(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root,
-    const std::string &valueName) const
+std::list<std::string>
+ConfigReader::getListOfStrings(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root,
+                               const std::string &valueName) const
 {
     std::list<std::string> result;
     if (root->isMember(valueName) && root->at(valueName)->isArray())
@@ -248,9 +242,9 @@ std::list<std::string> ConfigReader::getListOfStrings(
     return result;
 }
 
-std::optional<std::string> ConfigReader::getString(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root,
-    const std::string &valueName) const
+std::optional<std::string>
+ConfigReader::getString(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root,
+                        const std::string &valueName) const
 {
     if (root->isMember(valueName) && root->at(valueName)->isString())
     {
@@ -259,9 +253,9 @@ std::optional<std::string> ConfigReader::getString(
     return std::nullopt;
 }
 
-std::optional<unsigned int> ConfigReader::getUInt(
-    const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root,
-    const std::string &valueName) const
+std::optional<unsigned int>
+ConfigReader::getUInt(const std::shared_ptr<firebolt::rialto::wrappers::IJsonValueWrapper> &root,
+                      const std::string &valueName) const
 {
     if (root->isMember(valueName) && root->at(valueName)->isUInt())
     {
