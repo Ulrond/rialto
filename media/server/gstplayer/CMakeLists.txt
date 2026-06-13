@@ -95,6 +95,7 @@ add_library(
         source/GstDecryptor.cpp
         source/GstDispatcherThread.cpp
         source/GstGenericPlayer.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/source/LinuxPlatformBackend.cpp
         source/GstInitialiser.cpp
         source/GstLogForwarding.cpp
         source/GstProfiler.cpp
@@ -119,6 +120,7 @@ target_include_directories(
         include/tasks/generic
         include/tasks/webAudio
         ${CMAKE_CURRENT_SOURCE_DIR}/../platform/interface
+        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/include
         $<TARGET_PROPERTY:RialtoPlayerPublic,INTERFACE_INCLUDE_DIRECTORIES>
         $<TARGET_PROPERTY:RialtoPlayerCommon,INTERFACE_INCLUDE_DIRECTORIES>
         $<TARGET_PROPERTY:RialtoServerCommon,INTERFACE_INCLUDE_DIRECTORIES>
