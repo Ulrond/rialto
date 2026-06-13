@@ -31,6 +31,7 @@
 #include "IGstProfiler.h"
 #include "IGstProtectionMetadataHelperFactory.h"
 #include "IGstSrc.h"
+#include "IPlatformBackend.h"
 #include "IGstWrapper.h"
 #include "ITimer.h"
 #include "IWorkerThread.h"
@@ -102,7 +103,8 @@ public:
                      std::unique_ptr<IGenericPlayerTaskFactory> taskFactory,
                      std::unique_ptr<IWorkerThreadFactory> workerThreadFactory,
                      std::unique_ptr<IGstDispatcherThreadFactory> gstDispatcherThreadFactory,
-                     std::shared_ptr<IGstProtectionMetadataHelperFactory> gstProtectionMetadataFactory);
+                     std::shared_ptr<IGstProtectionMetadataHelperFactory> gstProtectionMetadataFactory,
+                     const std::shared_ptr<IPlatformBackend> &platformBackend = nullptr);
 
     /**
      * @brief Virtual destructor.
@@ -431,6 +433,12 @@ private:
      * @brief The rdk gstreamer utils wrapper object
      */
     std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> m_rdkGstreamerUtilsWrapper;
+
+    /**
+     * @brief The SoC platform backend (sink/element creation behind a versioned ABI).
+     *        May be null until the platform-backed construction path is wired.
+     */
+    std::shared_ptr<IPlatformBackend> m_platformBackend;
 
     /**
      * @brief Factory creating gst profilers

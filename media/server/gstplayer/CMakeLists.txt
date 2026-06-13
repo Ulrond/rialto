@@ -118,6 +118,7 @@ target_include_directories(
         include/tasks
         include/tasks/generic
         include/tasks/webAudio
+        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/interface
         $<TARGET_PROPERTY:RialtoPlayerPublic,INTERFACE_INCLUDE_DIRECTORIES>
         $<TARGET_PROPERTY:RialtoPlayerCommon,INTERFACE_INCLUDE_DIRECTORIES>
         $<TARGET_PROPERTY:RialtoServerCommon,INTERFACE_INCLUDE_DIRECTORIES>
