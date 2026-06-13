@@ -137,10 +137,12 @@ GstGenericPlayer::GstGenericPlayer(
     const std::shared_ptr<IGstProfilerFactory> &gstProfilerFactory, std::shared_ptr<common::ITimerFactory> timerFactory,
     std::unique_ptr<IGenericPlayerTaskFactory> taskFactory, std::unique_ptr<IWorkerThreadFactory> workerThreadFactory,
     std::unique_ptr<IGstDispatcherThreadFactory> gstDispatcherThreadFactory,
-    std::shared_ptr<IGstProtectionMetadataHelperFactory> gstProtectionMetadataFactory)
+    std::shared_ptr<IGstProtectionMetadataHelperFactory> gstProtectionMetadataFactory,
+    const std::shared_ptr<IPlatformBackend> &platformBackend)
     : m_gstPlayerClient(client), m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper},
-      m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper}, m_gstProfilerFactory{gstProfilerFactory},
-      m_timerFactory{timerFactory}, m_taskFactory{std::move(taskFactory)}, m_flushWatcher{std::move(flushWatcher)}
+      m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper}, m_platformBackend{platformBackend},
+      m_gstProfilerFactory{gstProfilerFactory}, m_timerFactory{timerFactory}, m_taskFactory{std::move(taskFactory)},
+      m_flushWatcher{std::move(flushWatcher)}
 {
     RIALTO_SERVER_LOG_DEBUG("GstGenericPlayer is constructed.");
 
