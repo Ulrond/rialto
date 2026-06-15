@@ -101,6 +101,14 @@ public:
      *
      * @param[in] name : Element instance name.
      * @retval the new sink element, or nullptr on failure.
+     *
+     * @note Direction of travel: this should take a **video/plane resource ID**
+     *       (static resource-ID binding — Session 0 → Main, Session 1 → PiP), aligning
+     *       with MediaSessionConfig.output { PlaneType, planeIndex } and a
+     *       `setWesterosSinkVideoID(id)` on the vendor sink — superseding the
+     *       primary/secondary boolean (`setWesterossinkSecondaryVideo`), which is a
+     *       capability query, not a sink-creation, and is why that path does not fit
+     *       this method as-is.
      */
     virtual GstElement *createVideoSink(const std::string &name) = 0;
 
