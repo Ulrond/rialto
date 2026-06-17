@@ -31,7 +31,7 @@ class PlatformBackendMock : public IPlatformBackend
 public:
     MOCK_METHOD(const char *, platformName, (), (const, override));
     MOCK_METHOD(GstElement *, createAudioSink, (const std::string &name), (override));
-    MOCK_METHOD(GstElement *, createVideoSink, (const std::string &name), (override));
+    MOCK_METHOD(GstElement *, createVideoSink, (const std::string &name, uint32_t videoId), (override));
 };
 } // namespace firebolt::rialto::server
 
