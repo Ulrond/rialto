@@ -71,6 +71,7 @@ add_gtests(RialtoServerGstPlayerUnitTests
     genericPlayer/tasksTests/UpdatePlaybackGroupTest.cpp
 
     genericPlayer/CreateTest.cpp
+    genericPlayer/ParityTest.cpp
     genericPlayer/FlushOnPrerollControllerTest.cpp
     genericPlayer/GstGenericPlayerPrivateTest.cpp
     genericPlayer/GstGenericPlayerTest.cpp
