@@ -127,5 +127,7 @@ TEST_F(LinuxPlatformBackendTest, CreateVideoSinkUsesAutovideosink)
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autovideosink"), StrEq("videosink")))
         .WillOnce(Return(&m_sink));
 
-    EXPECT_EQ(m_sut.createVideoSink("videosink"), &m_sink);
+    // The reference backend is plane-agnostic: the videoId is accepted but autovideosink carries
+    // no setWesterosSinkVideoID, so no extra configuration is expected.
+    EXPECT_EQ(m_sut.createVideoSink("videosink", 1), &m_sink);
 }

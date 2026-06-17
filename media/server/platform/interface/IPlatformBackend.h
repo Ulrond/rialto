@@ -53,7 +53,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 1;
+constexpr uint32_t kPlatformBackendAbiVersion = 2;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -94,23 +94,19 @@ public:
     virtual GstElement *createAudioSink(const std::string &name) = 0;
 
     /**
-     * @brief Creates the platform's video sink as a GStreamer element.
+     * @brief Creates the platform's video sink as a GStreamer element, bound to a video plane.
      *
-     * Device backends return the vendor sink (e.g. westerossink); the Linux
-     * backend returns autovideosink.
+     * Device backends return the vendor sink (e.g. westerossink) bound to the plane via
+     * setWesterosSinkVideoID(videoId); the Linux backend returns autovideosink.
      *
-     * @param[in] name : Element instance name.
+     * @param[in] name    : Element instance name.
+     * @param[in] videoId : Video/plane resource ID — a static binding to the output plane
+     *                      (0 = Main, 1 = PiP), aligning with MediaSessionConfig.output. This
+     *                      supersedes the primary/secondary boolean: setWesterossinkSecondaryVideo
+     *                      is a capability query, not a sink-creation, so it never fit here.
      * @retval the new sink element, or nullptr on failure.
-     *
-     * @note Direction of travel: this should take a **video/plane resource ID**
-     *       (static resource-ID binding — Session 0 → Main, Session 1 → PiP), aligning
-     *       with MediaSessionConfig.output { PlaneType, planeIndex } and a
-     *       `setWesterosSinkVideoID(id)` on the vendor sink — superseding the
-     *       primary/secondary boolean (`setWesterossinkSecondaryVideo`), which is a
-     *       capability query, not a sink-creation, and is why that path does not fit
-     *       this method as-is.
      */
-    virtual GstElement *createVideoSink(const std::string &name) = 0;
+    virtual GstElement *createVideoSink(const std::string &name, uint32_t videoId) = 0;
 
 protected:
     IPlatformBackend() = default;

@@ -70,10 +70,13 @@ GstElement *LinuxPlatformBackend::createAudioSink(const std::string &name)
     return m_gstWrapper->gstElementFactoryMake("autoaudiosink", name.c_str());
 }
 
-GstElement *LinuxPlatformBackend::createVideoSink(const std::string &name)
+GstElement *LinuxPlatformBackend::createVideoSink(const std::string &name, uint32_t videoId)
 {
     if (!m_gstWrapper)
         return nullptr;
+    // The Linux reference sink is plane-agnostic; videoId is honoured by device backends
+    // (setWesterosSinkVideoID) where the vendor sink binds to a hardware plane.
+    (void)videoId;
     return m_gstWrapper->gstElementFactoryMake("autovideosink", name.c_str());
 }
 
