@@ -73,12 +73,19 @@ std::unique_ptr<IGstWebAudioPlayer> GstWebAudioPlayerFactory::createGstWebAudioP
         {
             throw std::runtime_error("Cannot create GlibWrapper");
         }
+        // Create the SoC platform backend via the versioned loader ABI. The core names
+        // no SoC: rialtoCreatePlatformBackend() is resolved from the linked platform
+        // backend today and will be dlopen()'d from a per-SoC .so in a later step.
+        PlatformHostContext platformHostContext{gstWrapper, glibWrapper};
+        std::shared_ptr<IPlatformBackend> platformBackend{rialtoCreatePlatformBackend(&platformHostContext),
+                                                          &rialtoDestroyPlatformBackend};
+
         gstPlayer = std::make_unique<GstWebAudioPlayer>(client, priority, gstWrapper, glibWrapper,
                                                         IGstInitialiser::instance(), IGstSrcFactory::getFactory(),
                                                         std::make_unique<WebAudioPlayerTaskFactory>(client, gstWrapper,
                                                                                                     glibWrapper),
                                                         std::make_unique<WorkerThreadFactory>(),
-                                                        std::make_unique<GstDispatcherThreadFactory>());
+                                                        std::make_unique<GstDispatcherThreadFactory>(), platformBackend);
     }
     catch (const std::exception &e)
     {
@@ -95,9 +102,10 @@ GstWebAudioPlayer::GstWebAudioPlayer(IGstWebAudioPlayerClient *client, const uin
                                      const std::shared_ptr<IGstSrcFactory> &gstSrcFactory,
                                      std::unique_ptr<IWebAudioPlayerTaskFactory> taskFactory,
                                      std::unique_ptr<IWorkerThreadFactory> workerThreadFactory,
-                                     std::unique_ptr<IGstDispatcherThreadFactory> gstDispatcherThreadFactory)
+                                     std::unique_ptr<IGstDispatcherThreadFactory> gstDispatcherThreadFactory,
+                                     const std::shared_ptr<IPlatformBackend> &platformBackend)
     : m_gstPlayerClient(client), m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper},
-      m_taskFactory{std::move(taskFactory)}
+      m_taskFactory{std::move(taskFactory)}, m_platformBackend{platformBackend}
 {
     RIALTO_SERVER_LOG_DEBUG("GstWebAudioPlayer is constructed.");
 
@@ -166,85 +174,21 @@ bool GstWebAudioPlayer::initWebAudioPipeline(const uint32_t priority)
     m_gstWrapper->gstAppSrcSetMaxBytes(GST_APP_SRC(m_context.source), kMaxWebAudioBytes);
     m_glibWrapper->gObjectSet(m_context.source, "format", GST_FORMAT_TIME, nullptr);
 
-    // Perform sink specific initalisation
-    GstPluginFeature *feature = nullptr;
-    GstRegistry *reg = m_gstWrapper->gstRegistryGet();
-    if (!reg)
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed get the gst registry");
-        return false;
-    }
-
-    GstElement *sink = nullptr;
-    if (nullptr != (feature = m_gstWrapper->gstRegistryLookupFeature(reg, "amlhalasink")))
-    {
-        // LLama
-        RIALTO_SERVER_LOG_INFO("Use amlhalasink");
-        sink = createAmlhalaSink();
-        m_gstWrapper->gstObjectUnref(feature);
-    }
-    else if (nullptr != (feature = m_gstWrapper->gstRegistryLookupFeature(reg, "rtkaudiosink")))
-    {
-        // XiOne
-        RIALTO_SERVER_LOG_INFO("Use rtkaudiosink");
-        sink = createRtkAudioSink();
-        m_gstWrapper->gstObjectUnref(feature);
-    }
-    else
-    {
-        RIALTO_SERVER_LOG_INFO("Use autoaudiosink");
-        sink = createAutoSink();
-    }
-
+    // Ask the SoC platform backend to make the audio sink. The backend owns all
+    // SoC-specific element selection (amlhalasink / rtkaudiosink / autoaudiosink);
+    // the engine names no vendor sink.
+    GstElement *sink = m_platformBackend ? m_platformBackend->createAudioSink("webaudiosink") : nullptr;
     if (sink)
     {
         return linkElementsToSrc(sink);
     }
     else
     {
+        RIALTO_SERVER_LOG_ERROR("Failed to create the audio sink");
         m_gstWrapper->gstObjectUnref(m_context.source);
         m_context.source = nullptr;
     }
     return false;
-}
-
-GstElement *GstWebAudioPlayer::createAmlhalaSink()
-{
-    GstElement *sink = m_gstWrapper->gstElementFactoryMake("amlhalasink", "webaudiosink");
-    if (!sink)
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed create the amlhalasink");
-        return nullptr;
-    }
-    m_glibWrapper->gObjectSet(G_OBJECT(sink), "direct-mode", FALSE, NULL);
-
-    return sink;
-}
-
-GstElement *GstWebAudioPlayer::createRtkAudioSink()
-{
-    GstElement *sink = m_gstWrapper->gstElementFactoryMake("rtkaudiosink", "webaudiosink");
-    if (!sink)
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed create the rtkaudiosink");
-        return nullptr;
-    }
-    m_glibWrapper->gObjectSet(G_OBJECT(sink), "media-tunnel", FALSE, NULL);
-    m_glibWrapper->gObjectSet(G_OBJECT(sink), "audio-service", TRUE, NULL);
-
-    return sink;
-}
-
-GstElement *GstWebAudioPlayer::createAutoSink()
-{
-    GstElement *sink = m_gstWrapper->gstElementFactoryMake("autoaudiosink", "webaudiosink");
-    if (!sink)
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed create the autoaudiosink");
-        return nullptr;
-    }
-
-    return sink;
 }
 
 // NOTE:-

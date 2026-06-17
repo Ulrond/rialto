@@ -35,6 +35,11 @@ namespace firebolt::rialto::server
  * engine previously selected via its inlined registry-probe fallback. This is the
  * playback proof for the SoC-isolation seam: with no vendor sink present, the core
  * drives playback entirely through IPlatformBackend.
+ *
+ * Transitional: createAudioSink still carries the amlhalasink/rtkaudiosink probe
+ * ladder so vendor hardware keeps its sink while the engine names no SoC. Those
+ * branches migrate to the per-SoC backend .so when the dlopen loader lands, after
+ * which this backend keeps only the autoaudiosink path.
  */
 class LinuxPlatformBackend : public IPlatformBackend
 {

@@ -29,6 +29,7 @@
 #include "GstWebAudioPlayer.h"
 #include "GstWebAudioPlayerClientMock.h"
 #include "GstWrapperMock.h"
+#include "PlatformBackendMock.h"
 #include "WebAudioPlayerTaskFactoryMock.h"
 #include "WorkerThreadFactoryMock.h"
 #include "WorkerThreadMock.h"
@@ -74,11 +75,11 @@ public:
     StrictMock<GstDispatcherThreadMock> &m_gstDispatcherThreadMock{
         dynamic_cast<StrictMock<GstDispatcherThreadMock> &>(*gstDispatcherThread)};
     StrictMock<GstInitialiserMock> m_gstInitialiserMock;
+    std::shared_ptr<StrictMock<PlatformBackendMock>> m_platformBackendMock{
+        std::make_shared<StrictMock<PlatformBackendMock>>()};
 
 protected:
-    void gstPlayerWillBeCreatedForLlama();
-    void gstPlayerWillBeCreatedForXiOne();
-    void gstPlayerWillBeCreatedForGenericPlatform();
+    void gstPlayerWillBeCreated();
     void gstPlayerWillBeDestroyed();
     void executeTaskWhenEnqueued();
     void expectInitRialtoSrc();
@@ -86,15 +87,7 @@ protected:
     void expectInitThreads();
     void expectCreatePipeline();
     void expectInitAppSrc();
-    void expectAddElementsAmlhalaSink();
-    void expectAddElementsRtkAudioSink();
-    void expectAddElementsAutoAudioSink();
-    void expectMakeAmlhalaSink();
-    void expectInitAmlhalaSink();
-    void expectMakeRtkAudioSink();
-    void expectInitRtkAudioSink();
-    void expectMakeAutoAudioSink();
-    void expectInitAutoAudioSink();
+    void expectCreateAudioSink();
     void expectLinkElements();
     void expectLinkElementsExceptVolume();
     void expectAddBinFailure();
