@@ -31,6 +31,7 @@ target_include_directories(
         RialtoServerMocks
 
         INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}
         gstplayer
         ipc
         main

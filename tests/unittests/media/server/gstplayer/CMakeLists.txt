@@ -100,6 +100,9 @@ add_gtests(RialtoServerGstPlayerUnitTests
 
     webAudioPlayer/common/GstWebAudioPlayerTestCommon.cpp
 
+    #Platform backend unittests
+    platform/LinuxPlatformBackendTest.cpp
+
     #GstSrc unittests
     rialtoSrc/CreateTest.cpp
     rialtoSrc/InitTest.cpp

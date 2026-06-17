@@ -28,6 +28,7 @@
 #include "IGstWebAudioPlayer.h"
 #include "IGstWebAudioPlayerPrivate.h"
 #include "IGstWrapper.h"
+#include "IPlatformBackend.h"
 #include "IWorkerThread.h"
 #include "WebAudioPlayerContext.h"
 #include "tasks/IPlayerTask.h"
@@ -70,6 +71,7 @@ public:
      * @param[in] taskFactory                  : The task factory
      * @param[in] workerThreadFactory          : The worker thread factory
      * @param[in] gstDispatcherThreadFactory   : The gst dispatcher thread factory
+     * @param[in] platformBackend              : The SoC platform backend that creates the audio sink
      */
     GstWebAudioPlayer(IGstWebAudioPlayerClient *client, const uint32_t priority,
                       const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
@@ -77,7 +79,8 @@ public:
                       const IGstInitialiser &gstInitialiser, const std::shared_ptr<IGstSrcFactory> &gstSrcFactory,
                       std::unique_ptr<IWebAudioPlayerTaskFactory> taskFactory,
                       std::unique_ptr<IWorkerThreadFactory> workerThreadFactory,
-                      std::unique_ptr<IGstDispatcherThreadFactory> gstDispatcherThreadFactory);
+                      std::unique_ptr<IGstDispatcherThreadFactory> gstDispatcherThreadFactory,
+                      const std::shared_ptr<IPlatformBackend> &platformBackend);
 
     /**
      * @brief Virtual destructor.
@@ -107,27 +110,6 @@ private:
      * @retval true on success false otherwise.
      */
     bool initWebAudioPipeline(const uint32_t priority);
-
-    /**
-     * @brief Creates a amlhalasink audio sink element and adds it to the pipeline.
-     *
-     * @retval constructed sink element or nullptr on failure.
-     */
-    GstElement *createAmlhalaSink();
-
-    /**
-     * @brief Creates a rtkaudiosink audio sink element and adds it to the pipeline.
-     *
-     * @retval constructed sink element or nullptr on failure.
-     */
-    GstElement *createRtkAudioSink();
-
-    /**
-     * @brief Creates a autoaudiosink sink element and adds it to the pipeline.
-     *
-     * @retval constructed sink element or nullptr on failure.
-     */
-    GstElement *createAutoSink();
 
     /**
      * @brief Links the sink, audio convert and audio resample to the src.
@@ -183,6 +165,11 @@ private:
      * @brief The GstWebAudioPlayer task factory
      */
     std::unique_ptr<IWebAudioPlayerTaskFactory> m_taskFactory;
+
+    /**
+     * @brief The SoC platform backend that creates the audio sink.
+     */
+    std::shared_ptr<IPlatformBackend> m_platformBackend;
 };
 } // namespace firebolt::rialto::server
 

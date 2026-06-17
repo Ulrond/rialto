@@ -23,34 +23,15 @@
 #include <memory>
 #include <utility>
 
-void GstWebAudioPlayerTestCommon::gstPlayerWillBeCreatedForLlama()
+void GstWebAudioPlayerTestCommon::gstPlayerWillBeCreated()
 {
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
     expectInitRialtoSrc();
     expectInitThreads();
     expectCreatePipeline();
     expectInitAppSrc();
-    expectAddElementsAmlhalaSink();
-}
-
-void GstWebAudioPlayerTestCommon::gstPlayerWillBeCreatedForXiOne()
-{
-    EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
-    expectInitRialtoSrc();
-    expectInitThreads();
-    expectCreatePipeline();
-    expectInitAppSrc();
-    expectAddElementsRtkAudioSink();
-}
-
-void GstWebAudioPlayerTestCommon::gstPlayerWillBeCreatedForGenericPlatform()
-{
-    EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
-    expectInitRialtoSrc();
-    expectInitThreads();
-    expectCreatePipeline();
-    expectInitAppSrc();
-    expectAddElementsAutoAudioSink();
+    expectCreateAudioSink();
+    expectLinkElements();
 }
 
 void GstWebAudioPlayerTestCommon::gstPlayerWillBeDestroyed()
@@ -123,73 +104,9 @@ void GstWebAudioPlayerTestCommon::expectInitAppSrc()
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_appSrc), StrEq("format")));
 }
 
-void GstWebAudioPlayerTestCommon::expectAddElementsAmlhalaSink()
+void GstWebAudioPlayerTestCommon::expectCreateAudioSink()
 {
-    expectMakeAmlhalaSink();
-    expectInitAmlhalaSink();
-}
-
-void GstWebAudioPlayerTestCommon::expectAddElementsRtkAudioSink()
-{
-    expectMakeRtkAudioSink();
-    expectInitRtkAudioSink();
-}
-
-void GstWebAudioPlayerTestCommon::expectAddElementsAutoAudioSink()
-{
-    expectMakeAutoAudioSink();
-    expectInitAutoAudioSink();
-}
-
-void GstWebAudioPlayerTestCommon::expectMakeAmlhalaSink()
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("amlhalasink"), StrEq("webaudiosink")))
-        .WillOnce(Return(&m_sink));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
-}
-
-void GstWebAudioPlayerTestCommon::expectInitAmlhalaSink()
-{
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("direct-mode")));
-
-    expectLinkElements();
-}
-
-void GstWebAudioPlayerTestCommon::expectMakeRtkAudioSink()
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink"))).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("rtkaudiosink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("rtkaudiosink"), StrEq("webaudiosink")))
-        .WillOnce(Return(&m_sink));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
-}
-
-void GstWebAudioPlayerTestCommon::expectInitRtkAudioSink()
-{
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("media-tunnel")));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("audio-service")));
-
-    expectLinkElements();
-}
-
-void GstWebAudioPlayerTestCommon::expectMakeAutoAudioSink()
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink"))).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("rtkaudiosink"))).WillOnce(Return(nullptr));
-
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autoaudiosink"), StrEq("webaudiosink")))
-        .WillOnce(Return(&m_sink));
-}
-
-void GstWebAudioPlayerTestCommon::expectInitAutoAudioSink()
-{
-    expectLinkElements();
+    EXPECT_CALL(*m_platformBackendMock, createAudioSink(StrEq("webaudiosink"))).WillOnce(Return(&m_sink));
 }
 
 void GstWebAudioPlayerTestCommon::expectLinkElements()
