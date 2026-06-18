@@ -204,9 +204,21 @@ private:
 
 private:
     /**
-     * @brief Initialises the player pipeline for MSE playback.
+     * @brief Initialises the player pipeline for MSE playback, dispatching to the playbin or the
+     *        explicit-construction path (transitional RIALTO_EXPLICIT_PIPELINE opt-in switch).
      */
     void initMsePipeline();
+
+    /**
+     * @brief Initialises the MSE pipeline explicitly (plain pipeline container; per-stream chains
+     *        are built in AttachSource). No playbin autoplugging.
+     */
+    void initMsePipelineExplicit();
+
+    /**
+     * @brief Initialises the MSE pipeline via GStreamer playbin (legacy autoplugging path).
+     */
+    void initMsePipelinePlaybin();
 
     /**
      * @brief Gets the flag from gstreamer.

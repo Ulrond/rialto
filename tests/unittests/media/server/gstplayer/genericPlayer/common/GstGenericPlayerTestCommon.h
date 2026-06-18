@@ -113,12 +113,14 @@ public:
 
 protected:
     void gstPlayerWillBeCreated();
+    void gstPlayerWillBeCreatedExplicit();
     void gstPlayerWillBeDestroyed();
     void expectShutdown();
     void expectStop();
     void executeTaskWhenEnqueued();
     void initFactories();
     void expectMakePlaybin();
+    void expectMakePipeline();
     void expectSetFlags();
     void expectSetFlagsWithNativeAudio();
     void expectSetSignalCallbacks();
