@@ -111,7 +111,7 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createEos(GenericPlayerCo
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createFinishSetupSource(GenericPlayerContext &context,
                                                                                IGstGenericPlayerPrivate &player) const
 {
-    return std::make_unique<tasks::generic::FinishSetupSource>(context, player, m_client);
+    return std::make_unique<tasks::generic::FinishSetupSource>(context, m_gstWrapper, m_glibWrapper, player, m_client);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createHandleBusMessage(GenericPlayerContext &context,

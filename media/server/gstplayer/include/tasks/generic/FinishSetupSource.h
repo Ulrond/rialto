@@ -21,21 +21,42 @@
 #define FIREBOLT_RIALTO_SERVER_TASKS_GENERIC_FINISH_SETUP_SOURCE_H_
 
 #include "GenericPlayerContext.h"
+#include "IGlibWrapper.h"
 #include "IGstGenericPlayerClient.h"
 #include "IGstGenericPlayerPrivate.h"
+#include "IGstWrapper.h"
 #include "IPlayerTask.h"
+#include <gst/app/gstappsrc.h>
+#include <memory>
 
 namespace firebolt::rialto::server::tasks::generic
 {
 class FinishSetupSource : public IPlayerTask
 {
 public:
-    FinishSetupSource(GenericPlayerContext &context, IGstGenericPlayerPrivate &player, IGstGenericPlayerClient *client);
+    FinishSetupSource(GenericPlayerContext &context,
+                      const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
+                      const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
+                      IGstGenericPlayerPrivate &player, IGstGenericPlayerClient *client);
     ~FinishSetupSource() override;
     void execute() const override;
 
 private:
+    /**
+     * @brief Configures the chain appsrc and wires its data-flow callbacks directly (explicit
+     *        construction). The appsrc is already in the pipeline (built by buildAudioChain), so
+     *        this bypasses GstSrc::setupAndAddAppSrc and the rialtosrc bin entirely.
+     *
+     * @param[in] streamInfo : the stream whose appsrc is configured.
+     * @param[in] callbacks  : the need/enough/seek callbacks to set on the appsrc.
+     * @param[in] type       : the media source type (selects the appsrc max-bytes).
+     */
+    void configureExplicitAppSrc(StreamInfo &streamInfo, GstAppSrcCallbacks *callbacks,
+                                 firebolt::rialto::MediaSourceType type) const;
+
     GenericPlayerContext &m_context;
+    std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;
+    std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> m_glibWrapper;
     IGstGenericPlayerPrivate &m_player;
     IGstGenericPlayerClient *m_gstPlayerClient;
 };

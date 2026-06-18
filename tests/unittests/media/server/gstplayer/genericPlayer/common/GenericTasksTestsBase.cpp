@@ -2827,9 +2827,36 @@ void GenericTasksTestsBase::shouldFinishSetupSource()
     EXPECT_CALL(testContext->m_gstPlayerClient, notifyPlaybackState(firebolt::rialto::PlaybackState::IDLE));
 }
 
+void GenericTasksTestsBase::shouldFinishSetupSourceExplicit()
+{
+    testContext->m_context.isExplicitConstruction = true;
+
+    // Explicit path configures the audio chain appsrc directly (no rialtosrc / setupAndAddAppSrc).
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("block")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("format")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("stream-type")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("min-percent")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("handle-segment-change")));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstAppSrcSetCallbacks(GST_APP_SRC(&testContext->m_appSrcAudio), _,
+                                                                 &testContext->m_gstPlayer, nullptr))
+        .WillOnce(Invoke(
+            [this](GstAppSrc *src, GstAppSrcCallbacks *callbacks, gpointer userData, GDestroyNotify notify)
+            {
+                testContext->m_audioCallbacks = *callbacks;
+                testContext->m_audioUserData = userData;
+            }));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetMaxBytes(GST_APP_SRC(&testContext->m_appSrcAudio), 512u * 1024u));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetStreamType(GST_APP_SRC(&testContext->m_appSrcAudio), GST_APP_STREAM_TYPE_SEEKABLE));
+    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaData(MediaSourceType::AUDIO));
+    EXPECT_CALL(testContext->m_gstPlayerClient, notifyPlaybackState(firebolt::rialto::PlaybackState::IDLE));
+}
+
 void GenericTasksTestsBase::triggerFinishSetupSource()
 {
-    firebolt::rialto::server::tasks::generic::FinishSetupSource task{testContext->m_context, testContext->m_gstPlayer,
+    firebolt::rialto::server::tasks::generic::FinishSetupSource task{testContext->m_context, testContext->m_gstWrapper,
+                                                                     testContext->m_glibWrapper, testContext->m_gstPlayer,
                                                                      &testContext->m_gstPlayerClient};
     task.execute();
 }

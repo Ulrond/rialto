@@ -347,6 +347,7 @@ protected:
 
     // FinishSetupSource test methods
     void shouldFinishSetupSource();
+    void shouldFinishSetupSourceExplicit();
     void triggerFinishSetupSource();
     void shouldScheduleNeedMediaDataAudio();
     void triggerAudioCallbackNeedData();
