@@ -120,6 +120,14 @@ struct GenericPlayerContext
     GstElement *videoSink{nullptr};
 
     /**
+     * @brief The audio sink.
+     *
+     * Stored by the explicit-construction path (buildAudioChain) so getSink and the audio-sink
+     * property setters reach it directly; the playbin path reads the sink off the pipeline instead.
+     */
+    GstElement *audioSink{nullptr};
+
+    /**
      * @brief Flag used to check, if video decoder handle has been set.
      */
     bool isVideoHandleSet{false};
