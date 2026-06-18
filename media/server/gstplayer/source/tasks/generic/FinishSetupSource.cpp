@@ -24,6 +24,7 @@
 #include "RialtoServerLogging.h"
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
+#include <unordered_map>
 
 namespace
 {
@@ -74,9 +75,11 @@ gboolean appSrcSeekData(GstAppSrc *src, guint64 offset, gpointer user_data)
 
 namespace firebolt::rialto::server::tasks::generic
 {
-FinishSetupSource::FinishSetupSource(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
-                                     IGstGenericPlayerClient *client)
-    : m_context{context}, m_player{player}, m_gstPlayerClient{client}
+FinishSetupSource::FinishSetupSource(GenericPlayerContext &context,
+                                     const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
+                                     const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
+                                     IGstGenericPlayerPrivate &player, IGstGenericPlayerClient *client)
+    : m_context{context}, m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper}, m_player{player}, m_gstPlayerClient{client}
 {
     RIALTO_SERVER_LOG_DEBUG("Constructing FinishSetupSource");
 }
@@ -91,31 +94,48 @@ void FinishSetupSource::execute() const
     RIALTO_SERVER_LOG_DEBUG("Executing FinishSetupSource");
     m_context.wereAllSourcesAttached = true;
 
-    if (!m_context.source)
-    {
-        RIALTO_SERVER_LOG_DEBUG("Source is not ready");
-        return;
-    }
-
     GstAppSrcCallbacks callbacks = {appSrcNeedData, appSrcEnoughData, appSrcSeekData, {nullptr}};
 
-    for (auto &elem : m_context.streamInfo)
+    if (m_context.isExplicitConstruction)
     {
-        firebolt::rialto::MediaSourceType sourceType = elem.first;
-        if (sourceType == firebolt::rialto::MediaSourceType::UNKNOWN)
+        // Explicit construction: the audio chain's appsrc is already in the pipeline (built by
+        // buildAudioChain) and there is no rialtosrc. Wire its data-flow callbacks directly,
+        // bypassing GstSrc::setupAndAddAppSrc. Video/subtitle chains follow in stage 4.
+        auto audioIt = m_context.streamInfo.find(firebolt::rialto::MediaSourceType::AUDIO);
+        if (audioIt != m_context.streamInfo.end())
         {
-            RIALTO_SERVER_LOG_WARN("Unknown media segment type");
-            continue;
+            StreamInfo &streamInfo = audioIt->second;
+            configureExplicitAppSrc(streamInfo, &callbacks, firebolt::rialto::MediaSourceType::AUDIO);
+            streamInfo.isDataNeeded = true;
+            m_player.notifyNeedMediaData(firebolt::rialto::MediaSourceType::AUDIO);
+        }
+    }
+    else
+    {
+        if (!m_context.source)
+        {
+            RIALTO_SERVER_LOG_DEBUG("Source is not ready");
+            return;
         }
 
-        StreamInfo &streamInfo = elem.second;
-        m_context.gstSrc->setupAndAddAppSrc(m_context.decryptionService, m_context.source, streamInfo, &callbacks,
-                                            &m_player, sourceType);
-        streamInfo.isDataNeeded = true;
-        m_player.notifyNeedMediaData(sourceType);
-    }
+        for (auto &elem : m_context.streamInfo)
+        {
+            firebolt::rialto::MediaSourceType sourceType = elem.first;
+            if (sourceType == firebolt::rialto::MediaSourceType::UNKNOWN)
+            {
+                RIALTO_SERVER_LOG_WARN("Unknown media segment type");
+                continue;
+            }
 
-    m_context.gstSrc->allAppSrcsAdded(m_context.source);
+            StreamInfo &streamInfo = elem.second;
+            m_context.gstSrc->setupAndAddAppSrc(m_context.decryptionService, m_context.source, streamInfo, &callbacks,
+                                                &m_player, sourceType);
+            streamInfo.isDataNeeded = true;
+            m_player.notifyNeedMediaData(sourceType);
+        }
+
+        m_context.gstSrc->allAppSrcsAdded(m_context.source);
+    }
 
     // Notify GstPlayerClient of Idle state once setup has finished
     if (m_gstPlayerClient)
@@ -127,5 +147,30 @@ void FinishSetupSource::execute() const
     auto recordId = m_context.gstProfiler->createRecord("All Sources Attached");
     if (recordId)
         m_context.gstProfiler->logRecord(recordId.value());
+}
+
+void FinishSetupSource::configureExplicitAppSrc(StreamInfo &streamInfo, GstAppSrcCallbacks *callbacks,
+                                                firebolt::rialto::MediaSourceType type) const
+{
+    m_glibWrapper->gObjectSet(streamInfo.appSrc, "block", FALSE, "format", GST_FORMAT_TIME, "stream-type",
+                              GST_APP_STREAM_TYPE_STREAM, "min-percent", 20, "handle-segment-change", TRUE, nullptr);
+    m_gstWrapper->gstAppSrcSetCallbacks(GST_APP_SRC(streamInfo.appSrc), callbacks, &m_player, nullptr);
+
+    const std::unordered_map<firebolt::rialto::MediaSourceType, uint32_t> queueSize =
+        {{firebolt::rialto::MediaSourceType::VIDEO, 8 * 1024 * 1024},
+         {firebolt::rialto::MediaSourceType::AUDIO, 512 * 1024},
+         {firebolt::rialto::MediaSourceType::SUBTITLE, 256 * 1024}};
+
+    auto sizeIt = queueSize.find(type);
+    if (sizeIt != queueSize.end())
+    {
+        m_gstWrapper->gstAppSrcSetMaxBytes(GST_APP_SRC(streamInfo.appSrc), sizeIt->second);
+    }
+    else
+    {
+        RIALTO_SERVER_LOG_WARN("Could not find max-bytes value for appsrc");
+    }
+
+    m_gstWrapper->gstAppSrcSetStreamType(GST_APP_SRC(streamInfo.appSrc), GST_APP_STREAM_TYPE_SEEKABLE);
 }
 } // namespace firebolt::rialto::server::tasks::generic
