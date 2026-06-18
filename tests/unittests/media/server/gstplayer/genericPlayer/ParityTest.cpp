@@ -25,12 +25,12 @@
  * behavioural spec runs against both the legacy `playbin` path and the explicit-construction path
  * during the playbin-removal migration (see PLAYBIN-REMOVAL-PLAN.md).
  *
- * The Playbin parameter is live now and locks current behaviour as the spec. The Explicit
- * parameter is skipped until stage 2 of the migration wires the explicit-construction path; at that
- * point its arrange step replaces the skip and the same assertions must hold.
+ * Both parameters are live: Playbin builds via GStreamer playbin, Explicit drives the
+ * explicit-construction path (RIALTO_EXPLICIT_PIPELINE opt-in). The same assertions hold for both.
  */
 
 #include "GstGenericPlayerTestCommon.h"
+#include <cstdlib>
 #include <gtest/gtest.h>
 #include <memory>
 #include <utility>
@@ -52,18 +52,20 @@ protected:
     VideoRequirements m_videoReq{kMinPrimaryVideoWidth, kMinPrimaryVideoHeight};
     bool m_isLive{false};
 
-    // Builds the player through the construction path under test. Returns false (after marking the
-    // test skipped) for the not-yet-implemented explicit path.
-    bool arrangeAndConstruct()
+    void TearDown() override { unsetenv("RIALTO_EXPLICIT_PIPELINE"); }
+
+    // Builds the player through the construction path under test.
+    void arrangeAndConstruct()
     {
         if (GetParam() == ConstructionMode::Explicit)
         {
-            // Stage 2 of the playbin-removal migration replaces this skip with the explicit-path
-            // arrange (gstPlayerWillBeCreatedExplicit) so the assertions below run against it too.
-            return false;
+            setenv("RIALTO_EXPLICIT_PIPELINE", "1", 1);
+            gstPlayerWillBeCreatedExplicit();
         }
-
-        gstPlayerWillBeCreated();
+        else
+        {
+            gstPlayerWillBeCreated();
+        }
         m_sut = std::make_unique<GstGenericPlayer>(&m_gstPlayerClient, m_decryptionServiceMock, MediaType::MSE,
                                                    m_videoReq, m_isLive, m_gstWrapperMock, m_glibWrapperMock,
                                                    m_rdkGstreamerUtilsWrapperMock, m_gstInitialiserMock,
@@ -72,7 +74,6 @@ protected:
                                                    std::move(m_taskFactory), std::move(workerThreadFactory),
                                                    std::move(gstDispatcherThreadFactory),
                                                    m_gstProtectionMetadataFactoryMock);
-        return true;
     }
 
     void destroy()
@@ -88,8 +89,7 @@ protected:
  */
 TEST_P(GstGenericPlayerParityTest, ConstructsAndDestroysSuccessfully)
 {
-    if (!arrangeAndConstruct())
-        GTEST_SKIP() << "Explicit construction path lands in stage 2 of playbin removal";
+    arrangeAndConstruct();
 
     ASSERT_NE(m_sut, nullptr);
 

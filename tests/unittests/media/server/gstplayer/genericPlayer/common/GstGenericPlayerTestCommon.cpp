@@ -52,6 +52,24 @@ void GstGenericPlayerTestCommon::gstPlayerWillBeCreated()
     executeTaskWhenEnqueued();
 }
 
+void GstGenericPlayerTestCommon::gstPlayerWillBeCreatedExplicit()
+{
+    EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
+    initFactories();
+    expectMakePipeline();
+    expectSetMessageCallback();
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&m_pipeline, GST_STATE_READY))
+        .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
+    EXPECT_CALL(*m_gstSrcMock, initSrc());
+    EXPECT_CALL(*m_gstProfilerFactoryMock, createGstProfiler(&m_pipeline, _, _))
+        .WillOnce(Return(ByMove(std::move(m_gstProfiler))));
+    EXPECT_CALL(m_workerThreadFactoryMock, createWorkerThread()).WillOnce(Return(ByMove(std::move(workerThread))));
+    EXPECT_CALL(*m_gstProtectionMetadataFactoryMock, createProtectionMetadataWrapper(_))
+        .WillOnce(Return(ByMove(std::move(m_gstProtectionMetadataWrapper))));
+    executeTaskWhenEnqueued();
+}
+
 void GstGenericPlayerTestCommon::gstPlayerWillBeDestroyed()
 {
     expectShutdown();
@@ -120,6 +138,11 @@ void GstGenericPlayerTestCommon::initFactories()
 void GstGenericPlayerTestCommon::expectMakePlaybin()
 {
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("playbin"), _)).WillOnce(Return(&m_pipeline));
+}
+
+void GstGenericPlayerTestCommon::expectMakePipeline()
+{
+    EXPECT_CALL(*m_gstWrapperMock, gstPipelineNew(StrEq("media_pipeline"))).WillOnce(Return(&m_pipeline));
 }
 
 void GstGenericPlayerTestCommon::expectSetFlags()

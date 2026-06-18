@@ -19,6 +19,7 @@
 
 #include <chrono>
 #include <cinttypes>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <stdexcept>
@@ -260,6 +261,47 @@ GstGenericPlayer::~GstGenericPlayer()
 }
 
 void GstGenericPlayer::initMsePipeline()
+{
+    // Transitional opt-in switch for the explicit-construction path (playbin removal). Default is
+    // playbin; set RIALTO_EXPLICIT_PIPELINE=1 to build the pipeline explicitly. The switch (and the
+    // playbin path) is removed once explicit construction is the default on every platform.
+    const char *explicitMode = std::getenv("RIALTO_EXPLICIT_PIPELINE");
+    if (explicitMode && explicitMode[0] == '1')
+    {
+        initMsePipelineExplicit();
+        return;
+    }
+    initMsePipelinePlaybin();
+}
+
+void GstGenericPlayer::initMsePipelineExplicit()
+{
+    // Explicit construction: a plain pipeline container. The per-stream chains
+    // (appsrc -> parse -> decoder -> sink-from-backend) are built in AttachSource; nothing is
+    // autoplugged, so playbin's signals / play-flags / playsink / uri are all absent.
+    m_context.pipeline = m_gstWrapper->gstPipelineNew("media_pipeline");
+    if (!m_context.pipeline)
+    {
+        throw std::runtime_error("Failed to create the pipeline");
+    }
+
+    m_context.gstProfiler = m_gstProfilerFactory->createGstProfiler(m_context.pipeline, m_gstWrapper, m_glibWrapper);
+    if (!m_context.gstProfiler)
+    {
+        throw std::runtime_error("Cannot create GstProfiler");
+    }
+
+    if (GST_STATE_CHANGE_FAILURE == m_gstWrapper->gstElementSetState(m_context.pipeline, GST_STATE_READY))
+    {
+        GST_WARNING("Failed to set pipeline to READY state");
+    }
+    RIALTO_SERVER_LOG_MIL("New RialtoServer's explicit pipeline created");
+    auto recordId = m_context.gstProfiler->createRecord("Pipeline Created");
+    if (recordId)
+        m_context.gstProfiler->logRecord(recordId.value());
+}
+
+void GstGenericPlayer::initMsePipelinePlaybin()
 {
     // Make playbin
     m_context.pipeline = m_gstWrapper->gstElementFactoryMake("playbin", "media_pipeline");
