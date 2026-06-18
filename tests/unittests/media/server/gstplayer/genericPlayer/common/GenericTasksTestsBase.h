@@ -163,6 +163,8 @@ protected:
     void shouldAttachAudioSource();
     void triggerAttachAudioSource();
     void checkAudioSourceAttached();
+    void setContextExplicitConstruction();
+    void shouldBuildExplicitAudioChainOnAttach();
     void shouldAttachAudioSourceWithChannelsAndRate();
     void triggerAttachAudioSourceWithChannelsAndRateAndDrm();
     void checkAudioSourceAttachedWithDrm();

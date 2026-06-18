@@ -284,6 +284,7 @@ void GstGenericPlayer::initMsePipelineExplicit()
     {
         throw std::runtime_error("Failed to create the pipeline");
     }
+    m_context.isExplicitConstruction = true;
 
     m_context.gstProfiler = m_gstProfilerFactory->createGstProfiler(m_context.pipeline, m_gstWrapper, m_glibWrapper);
     if (!m_context.gstProfiler)
@@ -299,6 +300,64 @@ void GstGenericPlayer::initMsePipelineExplicit()
     auto recordId = m_context.gstProfiler->createRecord("Pipeline Created");
     if (recordId)
         m_context.gstProfiler->logRecord(recordId.value());
+}
+
+void GstGenericPlayer::buildAudioChain(GstElement *source)
+{
+    if (!m_platformBackend)
+    {
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot build the explicit audio chain");
+        return;
+    }
+
+    // Deterministic audio chain. decodebin autoplugs only the decoder, keeping a ~4-element
+    // container without a hand-maintained codec->factory map; the static tail and the
+    // backend-owned sink are built explicitly. No playbin, no auto-sinks.
+    GstElement *decodebin = m_gstWrapper->gstElementFactoryMake("decodebin", "auddecodebin");
+    GstElement *audioConvert = m_gstWrapper->gstElementFactoryMake("audioconvert", "audconvert");
+    GstElement *audioResample = m_gstWrapper->gstElementFactoryMake("audioresample", "audresample");
+    GstElement *audioSink = m_platformBackend->createAudioSink("audiosink");
+
+    if (!decodebin || !audioConvert || !audioResample || !audioSink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to create the explicit audio chain elements");
+        return;
+    }
+
+    GstBin *pipelineBin = GST_BIN(m_context.pipeline);
+    m_gstWrapper->gstBinAdd(pipelineBin, source);
+    m_gstWrapper->gstBinAdd(pipelineBin, decodebin);
+    m_gstWrapper->gstBinAdd(pipelineBin, audioConvert);
+    m_gstWrapper->gstBinAdd(pipelineBin, audioResample);
+    m_gstWrapper->gstBinAdd(pipelineBin, audioSink);
+
+    // Static links: appsrc -> decodebin, and the static tail audioconvert -> audioresample -> sink.
+    // The decoder's src pad is created dynamically by decodebin, so it is linked to audioconvert in
+    // the pad-added handler.
+    m_gstWrapper->gstElementLink(source, decodebin);
+    m_gstWrapper->gstElementLink(audioConvert, audioResample);
+    m_gstWrapper->gstElementLink(audioResample, audioSink);
+
+    m_explicitAudioConvert = audioConvert;
+    m_glibWrapper->gSignalConnect(decodebin, "pad-added", G_CALLBACK(&GstGenericPlayer::audioDecodebinPadAdded), this);
+
+    RIALTO_SERVER_LOG_MIL(
+        "Explicit audio chain built (appsrc -> decodebin -> audioconvert -> audioresample -> audiosink)");
+}
+
+void GstGenericPlayer::audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self)
+{
+    // decodebin has exposed the decoder's src pad; link it to the static audioconvert tail.
+    if (!self || !self->m_explicitAudioConvert)
+    {
+        return;
+    }
+    GstPad *sinkPad = self->m_gstWrapper->gstElementGetStaticPad(self->m_explicitAudioConvert, "sink");
+    if (sinkPad)
+    {
+        self->m_gstWrapper->gstPadLink(pad, sinkPad);
+        self->m_gstWrapper->gstObjectUnref(sinkPad);
+    }
 }
 
 void GstGenericPlayer::initMsePipelinePlaybin()

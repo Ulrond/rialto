@@ -201,6 +201,7 @@ private:
     void setSourceFlushed(const MediaSourceType &mediaSourceType) override;
     bool isAsync(const MediaSourceType &mediaSourceType) const;
     void notifyPlaybackInfo() override;
+    void buildAudioChain(GstElement *source) override;
 
 private:
     /**
@@ -256,6 +257,16 @@ private:
      * @param[in] self      : Reference to the calling object.
      */
     static void deepElementAdded(GstBin *pipeline, GstBin *bin, GstElement *element, GstGenericPlayer *self);
+
+    /**
+     * @brief Callback on the explicit audio chain's decodebin pad-added. Called by the Gstreamer
+     *        thread. Links the decoder's freshly-exposed src pad to the static audioconvert tail.
+     *
+     * @param[in] decodebin : the decodebin that exposed the pad.
+     * @param[in] pad       : the decoder src pad to link downstream.
+     * @param[in] self      : Reference to the calling object.
+     */
+    static void audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self);
 
     /**
      * @brief Creates a Westeros sink and sets the res-usage flag for a secondary video.
@@ -513,6 +524,12 @@ private:
      * @brief The object used to check flushing state for all sources
      */
     std::unique_ptr<IFlushWatcher> m_flushWatcher;
+
+    /**
+     * @brief The explicit audio chain's audioconvert, held so the decodebin pad-added callback can
+     *        link the decoder src pad to it. Set by buildAudioChain (explicit construction only).
+     */
+    GstElement *m_explicitAudioConvert{nullptr};
 };
 
 } // namespace firebolt::rialto::server

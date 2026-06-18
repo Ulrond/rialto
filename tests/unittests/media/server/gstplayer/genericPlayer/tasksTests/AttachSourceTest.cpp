@@ -30,6 +30,15 @@ TEST_F(AttachSourceTest, shouldAttachAudioSource)
     checkAudioSourceAttached();
 }
 
+TEST_F(AttachSourceTest, shouldBuildExplicitAudioChainWhenExplicitConstruction)
+{
+    setContextExplicitConstruction();
+    shouldAttachAudioSource();
+    shouldBuildExplicitAudioChainOnAttach();
+    triggerAttachAudioSource();
+    checkAudioSourceAttached();
+}
+
 TEST_F(AttachSourceTest, shouldAttachAudioSourceWithChannelsAndRateAndDrm)
 {
     shouldAttachAudioSourceWithChannelsAndRate();

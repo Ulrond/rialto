@@ -123,7 +123,7 @@ protected:
                                                    std::move(m_flushWatcher), m_gstSrcFactoryMock,
                                                    m_gstProfilerFactoryMock, m_timerFactoryMock, std::move(m_taskFactory),
                                                    std::move(workerThreadFactory), std::move(gstDispatcherThreadFactory),
-                                                   m_gstProtectionMetadataFactoryMock);
+                                                   m_gstProtectionMetadataFactoryMock, m_platformBackendMock);
         m_realElement = initRealElement();
     }
 
@@ -2365,4 +2365,38 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetShowVideoWindow)
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(m_realElement, StrEq("show-video-window")));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement));
     EXPECT_TRUE(m_sut->setShowVideoWindow());
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitAudioChain)
+{
+    GstElement appSrc{};
+    GstElement decodebin{};
+    GstElement audioConvert{};
+    GstElement audioResample{};
+    GstElement audioSink{};
+
+    // Chain elements are made explicitly; the audio sink comes from the platform backend.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("auddecodebin")))
+        .WillOnce(Return(&decodebin));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioconvert"), StrEq("audconvert")))
+        .WillOnce(Return(&audioConvert));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioresample"), StrEq("audresample")))
+        .WillOnce(Return(&audioResample));
+    EXPECT_CALL(*m_platformBackendMock, createAudioSink(StrEq("audiosink"))).WillOnce(Return(&audioSink));
+
+    // Every element (appsrc included) is added to the pipeline bin.
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &appSrc)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &audioConvert)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &audioResample)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &audioSink)).WillOnce(Return(TRUE));
+
+    // Static links: appsrc -> decodebin and the static tail; the decoder src pad is linked on pad-added.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&appSrc, &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&audioConvert, &audioResample)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&audioResample, &audioSink)).WillOnce(Return(TRUE));
+
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
+
+    m_sut->buildAudioChain(&appSrc);
 }

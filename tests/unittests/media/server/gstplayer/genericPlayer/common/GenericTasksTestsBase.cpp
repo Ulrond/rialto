@@ -1514,6 +1514,16 @@ void GenericTasksTestsBase::checkAudioSourceAttached()
     EXPECT_FALSE(testContext->m_context.streamInfo.at(firebolt::rialto::MediaSourceType::AUDIO).hasDrm);
 }
 
+void GenericTasksTestsBase::setContextExplicitConstruction()
+{
+    testContext->m_context.isExplicitConstruction = true;
+}
+
+void GenericTasksTestsBase::shouldBuildExplicitAudioChainOnAttach()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, buildAudioChain(&testContext->m_appSrcAudio));
+}
+
 void GenericTasksTestsBase::shouldAttachAudioSourceWithChannelsAndRate()
 {
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsNewEmptySimple(StrEq("audio/x-eac3")))
