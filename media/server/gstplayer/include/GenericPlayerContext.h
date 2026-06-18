@@ -81,6 +81,15 @@ struct GenericPlayerContext
     GstElement *pipeline{nullptr};
 
     /**
+     * @brief Whether the pipeline was built by the explicit-construction path (no playbin).
+     *
+     * Set during initMsePipelineExplicit. The per-stream chains in AttachSource branch on this:
+     * the explicit path builds appsrc -> decodebin -> ... -> backend sink itself, rather than
+     * relying on playbin autoplugging. Transitional, removed with the playbin path.
+     */
+    bool isExplicitConstruction{false};
+
+    /**
      * @brief The gstreamer source.
      */
     GstElement *source{nullptr};

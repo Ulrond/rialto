@@ -323,6 +323,17 @@ public:
      * @brief Sends PlaybackInfo notification. Called by the worker thread.
      */
     virtual void notifyPlaybackInfo() = 0;
+
+    /**
+     * @brief Builds the explicit audio playback chain around the given appsrc and adds it to the
+     *        pipeline: appsrc -> decodebin -> audioconvert -> audioresample -> audioSink(backend).
+     *        decodebin autoplugs only the decoder; its dynamically-created src pad is linked to
+     *        audioconvert on pad-added. Used by the explicit-construction path only
+     *        (RIALTO_EXPLICIT_PIPELINE); the audio sink comes from the platform backend.
+     *
+     * @param[in] source : the audio appsrc the chain is built around.
+     */
+    virtual void buildAudioChain(GstElement *source) = 0;
 };
 } // namespace firebolt::rialto::server
 

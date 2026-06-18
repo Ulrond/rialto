@@ -36,6 +36,7 @@
 #include "GstSrcFactoryMock.h"
 #include "GstSrcMock.h"
 #include "GstWrapperMock.h"
+#include "PlatformBackendMock.h"
 #include "RdkGstreamerUtilsWrapperMock.h"
 #include "TimerFactoryMock.h"
 #include "WorkerThreadFactoryMock.h"
@@ -105,6 +106,8 @@ public:
         std::make_unique<StrictMock<GstProtectionMetadataHelperMock>>()};
     StrictMock<GstProtectionMetadataHelperMock> *m_gstProtectionMetadataWrapperMock{m_gstProtectionMetadataWrapper.get()};
     StrictMock<GstInitialiserMock> m_gstInitialiserMock;
+    std::shared_ptr<StrictMock<PlatformBackendMock>> m_platformBackendMock{
+        std::make_shared<StrictMock<PlatformBackendMock>>()};
     std::unique_ptr<IFlushWatcher> m_flushWatcher{std::make_unique<StrictMock<FlushWatcherMock>>()};
     StrictMock<FlushWatcherMock> &m_flushWatcherMock{dynamic_cast<StrictMock<FlushWatcherMock> &>(*m_flushWatcher)};
 
