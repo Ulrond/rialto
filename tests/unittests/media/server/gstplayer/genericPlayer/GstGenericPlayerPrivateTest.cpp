@@ -2398,5 +2398,26 @@ TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitAudioChain)
 
     EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
 
+    // The sink is stored in the context (an extra ref) so getSink / the audio-sink setters reach it.
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioSink)).WillOnce(Return(&audioSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioSink));   // released by termPipeline at teardown
+
     m_sut->buildAudioChain(&appSrc);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldGetExplicitAudioSink)
+{
+    GstElement audioSink{};
+    modifyContext(
+        [&](GenericPlayerContext &context)
+        {
+            context.isExplicitConstruction = true;
+            context.audioSink = &audioSink;
+        });
+
+    // Explicit construction returns the stored sink directly (ref'd for the caller), not off playbin.
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(GST_OBJECT(&audioSink))).WillOnce(Return(&audioSink));
+    EXPECT_EQ(&audioSink, m_sut->getSink(firebolt::rialto::MediaSourceType::AUDIO));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioSink));   // released by termPipeline at teardown
 }

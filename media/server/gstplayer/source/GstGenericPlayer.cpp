@@ -341,6 +341,21 @@ void GstGenericPlayer::buildAudioChain(GstElement *source)
     m_explicitAudioConvert = audioConvert;
     m_glibWrapper->gSignalConnect(decodebin, "pad-added", G_CALLBACK(&GstGenericPlayer::audioDecodebinPadAdded), this);
 
+    // The audio sink exists now — unlike the playbin path, where it appeared later via element-setup
+    // and SetupElement reacted to it. Store it so getSink and the audio-sink setters reach it, and
+    // apply the pending audio-sink properties inline (relocating the isAudioSink branch of
+    // SetupElement: low-latency and sync).
+    m_gstWrapper->gstObjectRef(audioSink);
+    m_context.audioSink = audioSink;
+    if (m_context.pendingLowLatency.has_value())
+    {
+        setLowLatency();
+    }
+    if (m_context.pendingSync.has_value())
+    {
+        setSync();
+    }
+
     RIALTO_SERVER_LOG_MIL(
         "Explicit audio chain built (appsrc -> decodebin -> audioconvert -> audioresample -> audiosink)");
 }
@@ -450,6 +465,11 @@ void GstGenericPlayer::termPipeline()
     {
         m_gstWrapper->gstObjectUnref(m_context.videoSink);
         m_context.videoSink = nullptr;
+    }
+    if (m_context.audioSink)
+    {
+        m_gstWrapper->gstObjectUnref(m_context.audioSink);
+        m_context.audioSink = nullptr;
     }
     if (m_context.playbackGroup.m_curAudioPlaysinkBin)
     {
@@ -580,6 +600,12 @@ bool GstGenericPlayer::getDuration(std::int64_t &duration)
 
 GstElement *GstGenericPlayer::getSink(const MediaSourceType &mediaSourceType) const
 {
+    // Explicit construction stores its sinks directly (there is no playbin to read them off).
+    if (m_context.isExplicitConstruction && mediaSourceType == MediaSourceType::AUDIO && m_context.audioSink)
+    {
+        return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.audioSink)));
+    }
+
     const char *kSinkName{nullptr};
     GstElement *sink{nullptr};
     switch (mediaSourceType)
