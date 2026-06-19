@@ -55,6 +55,7 @@
 #include "tasks/generic/SetUseBuffering.h"
 #include "tasks/generic/SetVideoGeometry.h"
 #include "tasks/generic/SetVolume.h"
+#include "tasks/generic/SetupAudioDecoder.h"
 #include "tasks/generic/SetupElement.h"
 #include "tasks/generic/SetupSource.h"
 #include "tasks/generic/Shutdown.h"
@@ -3561,6 +3562,27 @@ void GenericTasksTestsBase::triggerSetBufferingLimit()
     task.execute();
 
     EXPECT_EQ(testContext->m_context.pendingBufferingLimit, kBufferingLimit);
+}
+
+void GenericTasksTestsBase::shouldSetupAudioDecoder()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, setSyncOff()).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, setStreamSyncMode(MediaSourceType::AUDIO)).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, setBufferingLimit()).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, setEnableRateCorrection()).WillOnce(Return(true));
+}
+
+void GenericTasksTestsBase::triggerSetupAudioDecoder()
+{
+    firebolt::rialto::server::tasks::generic::SetupAudioDecoder task{testContext->m_context, testContext->m_gstPlayer};
+    task.execute();
+}
+
+void GenericTasksTestsBase::triggerSetupAudioDecoderNoPipeline()
+{
+    testContext->m_context.pipeline = nullptr;
+    firebolt::rialto::server::tasks::generic::SetupAudioDecoder task{testContext->m_context, testContext->m_gstPlayer};
+    task.execute();
 }
 
 void GenericTasksTestsBase::shouldSetUseBuffering()

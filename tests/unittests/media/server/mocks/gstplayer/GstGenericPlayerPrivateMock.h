@@ -46,6 +46,7 @@ public:
     MOCK_METHOD(bool, setStreamSyncMode, (const MediaSourceType &type), (override));
     MOCK_METHOD(bool, setRenderFrame, (), (override));
     MOCK_METHOD(bool, setBufferingLimit, (), (override));
+    MOCK_METHOD(bool, setEnableRateCorrection, (), (override));
     MOCK_METHOD(bool, setUseBuffering, (), (override));
     MOCK_METHOD(bool, setShowVideoWindow, (), (override));
     MOCK_METHOD(void, notifyNeedMediaData, (const MediaSourceType mediaSource), (override));

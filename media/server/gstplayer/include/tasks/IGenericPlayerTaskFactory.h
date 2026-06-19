@@ -233,6 +233,17 @@ public:
     createSetupElement(GenericPlayerContext &context, IGstGenericPlayerPrivate &player, GstElement *element) const = 0;
 
     /**
+     * @brief Creates a SetupAudioDecoder task.
+     *
+     * @param[in] context    : The GstGenericPlayer context
+     * @param[in] player     : The GstGenericPlayer instance
+     *
+     * @retval the new SetupAudioDecoder task instance.
+     */
+    virtual std::unique_ptr<IPlayerTask> createSetupAudioDecoder(GenericPlayerContext &context,
+                                                                 IGstGenericPlayerPrivate &player) const = 0;
+
+    /**
      * @brief Creates a SetupSource task.
      *
      * @param[in] context   : The GstGenericPlayer context

@@ -128,6 +128,14 @@ public:
     virtual bool setBufferingLimit() = 0;
 
     /**
+     * @brief Enables rate correction on the audio decoder for live streams. Called by the worker
+     *        thread when the explicit audio chain's decodebin has autoplugged the decoder.
+     *
+     * @retval true on success.
+     */
+    virtual bool setEnableRateCorrection() = 0;
+
+    /**
      * @brief Sets use buffering. Called by the worker thread.
      *
      * @retval true on success.

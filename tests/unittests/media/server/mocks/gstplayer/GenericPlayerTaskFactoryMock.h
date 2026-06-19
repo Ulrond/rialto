@@ -77,6 +77,8 @@ public:
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupElement,
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, GstElement *element),
                 (const, override));
+    MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupAudioDecoder,
+                (GenericPlayerContext & context, IGstGenericPlayerPrivate &player), (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupSource,
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, GstElement *source),
                 (const, override));

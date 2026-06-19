@@ -78,6 +78,7 @@ const std::string kSyncOffStr{"sync-off"};
 const std::string kStreamSyncModeStr{"stream-sync-mode"};
 const std::string kSyncModeStreamingStr{"syncmode-streaming"};
 const std::string kBufferingLimitStr{"limit-buffering-ms"};
+const std::string kEnableRateCorrectionStr{"enable-rate-correction"};
 const std::string kUseBufferingStr{"use-buffering"};
 const std::string kFrameStepOnPrerollStr{"frame-step-on-preroll"};
 constexpr bool kShowVideoWindow{true};
@@ -596,6 +597,47 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetBufferingLimit)
                       static_cast<int>(kBufferingLimit));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)).Times(1);
     EXPECT_TRUE(m_sut->setBufferingLimit());
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldNotSetEnableRateCorrectionWhenNotLive)
+{
+    // Not a live stream: never touches the decoder.
+    EXPECT_FALSE(m_sut->setEnableRateCorrection());
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetEnableRateCorrectionIfDecoderIsNull)
+{
+    modifyContext([&](GenericPlayerContext &context) { context.isLive = true; });
+    expectNoDecoder();
+    EXPECT_FALSE(m_sut->setEnableRateCorrection());
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetEnableRateCorrectionIfPropertyDoesntExist)
+{
+    modifyContext([&](GenericPlayerContext &context) { context.isLive = true; });
+
+    expectGetDecoder(m_realElement);
+
+    expectPropertyDoesntExist(m_glibWrapperMock, m_gstWrapperMock, m_realElement, kEnableRateCorrectionStr);
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)).Times(1);
+    EXPECT_FALSE(m_sut->setEnableRateCorrection());
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldSetEnableRateCorrection)
+{
+    modifyContext([&](GenericPlayerContext &context) { context.isLive = true; });
+
+    expectGetDecoder(m_realElement);
+
+    // enable-rate-correction routes through the generic gObjectSetStub (value ignored), matching the
+    // playbin path's reactive SetupElement behaviour.
+    GParamSpec dummySpec{};
+    EXPECT_CALL(*m_glibWrapperMock,
+                gObjectClassFindProperty(G_OBJECT_GET_CLASS(m_realElement), StrEq(kEnableRateCorrectionStr.c_str())))
+        .WillOnce(Return(&dummySpec));
+    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(m_realElement, StrEq(kEnableRateCorrectionStr.c_str())));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)).Times(1);
+    EXPECT_TRUE(m_sut->setEnableRateCorrection());
 }
 
 TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetUseBufferingIfDecodebinIsNull)
