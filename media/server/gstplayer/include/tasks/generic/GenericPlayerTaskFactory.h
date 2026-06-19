@@ -74,6 +74,8 @@ public:
                                                    std::int64_t position) const override;
     std::unique_ptr<IPlayerTask> createSetupElement(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
                                                     GstElement *element) const override;
+    std::unique_ptr<IPlayerTask> createSetupAudioDecoder(GenericPlayerContext &context,
+                                                         IGstGenericPlayerPrivate &player) const override;
     std::unique_ptr<IPlayerTask> createSetupSource(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
                                                    GstElement *source) const override;
     std::unique_ptr<IPlayerTask> createSetVideoGeometry(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,

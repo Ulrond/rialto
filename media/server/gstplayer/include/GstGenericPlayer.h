@@ -167,6 +167,7 @@ private:
     bool setStreamSyncMode(const MediaSourceType &type) override;
     bool setRenderFrame() override;
     bool setBufferingLimit() override;
+    bool setEnableRateCorrection() override;
     bool setUseBuffering() override;
     void notifyNeedMediaData(const MediaSourceType mediaSource) override;
     GstBuffer *createBuffer(const IMediaPipeline::MediaSegment &mediaSegment) const override;
@@ -267,6 +268,13 @@ private:
      * @param[in] self      : Reference to the calling object.
      */
     static void audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self);
+
+    /**
+     * @brief Enqueues a SetupAudioDecoder task. Called from the explicit audio chain's decodebin
+     *        pad-added callback (Gstreamer thread) once the decoder has been autoplugged, so the
+     *        pending audio-decoder properties are applied on the worker thread.
+     */
+    void scheduleSetupAudioDecoder();
 
     /**
      * @brief Creates a Westeros sink and sets the res-usage flag for a secondary video.

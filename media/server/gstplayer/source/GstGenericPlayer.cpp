@@ -373,6 +373,11 @@ void GstGenericPlayer::audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad
         self->m_gstWrapper->gstPadLink(pad, sinkPad);
         self->m_gstWrapper->gstObjectUnref(sinkPad);
     }
+
+    // The decoder has been autoplugged inside decodebin and is now reachable via getDecoder(AUDIO).
+    // Apply the pending audio-decoder properties on the worker thread — the explicit-path analogue
+    // of the playbin path's reactive SetupElement decoder branch.
+    self->scheduleSetupAudioDecoder();
 }
 
 void GstGenericPlayer::initMsePipelinePlaybin()
@@ -1852,6 +1857,14 @@ void GstGenericPlayer::scheduleAllSourcesAttached()
     allSourcesAttached();
 }
 
+void GstGenericPlayer::scheduleSetupAudioDecoder()
+{
+    if (m_workerThread)
+    {
+        m_workerThread->enqueueTask(m_taskFactory->createSetupAudioDecoder(m_context, *this));
+    }
+}
+
 void GstGenericPlayer::cancelUnderflow(firebolt::rialto::MediaSourceType mediaSource)
 {
     auto elem = m_context.streamInfo.find(mediaSource);
@@ -2286,6 +2299,31 @@ bool GstGenericPlayer::setBufferingLimit()
     {
         RIALTO_SERVER_LOG_DEBUG("Pending limit-buffering-ms, decoder is NULL");
     }
+    return result;
+}
+
+bool GstGenericPlayer::setEnableRateCorrection()
+{
+    // Live-only, like the playbin path's reactive SetupElement branch. There is no pending flag —
+    // it is driven purely by isLive at the point the decoder appears.
+    if (!m_context.isLive)
+    {
+        return false;
+    }
+    GstElement *decoder{getDecoder(MediaSourceType::AUDIO)};
+    if (!decoder)
+    {
+        RIALTO_SERVER_LOG_DEBUG("Pending enable-rate-correction, decoder is NULL");
+        return false;
+    }
+    bool result{false};
+    if (m_glibWrapper->gObjectClassFindProperty(G_OBJECT_GET_CLASS(decoder), "enable-rate-correction"))
+    {
+        RIALTO_SERVER_LOG_INFO("Enabling rate correction for broadcom decoder.");
+        m_glibWrapper->gObjectSet(decoder, "enable-rate-correction", TRUE, nullptr);
+        result = true;
+    }
+    m_gstWrapper->gstObjectUnref(decoder);
     return result;
 }
 

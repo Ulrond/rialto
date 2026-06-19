@@ -67,6 +67,7 @@ add_library(
         source/tasks/generic/SetUseBuffering.cpp
         source/tasks/generic/SetVideoGeometry.cpp
         source/tasks/generic/SetVolume.cpp
+        source/tasks/generic/SetupAudioDecoder.cpp
         source/tasks/generic/SetupElement.cpp
         source/tasks/generic/SetupSource.cpp
         source/tasks/generic/Shutdown.cpp

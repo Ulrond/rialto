@@ -309,6 +309,11 @@ protected:
     void shouldSetBufferingLimit();
     void triggerSetBufferingLimit();
 
+    // SetupAudioDecoder test methods
+    void shouldSetupAudioDecoder();
+    void triggerSetupAudioDecoder();
+    void triggerSetupAudioDecoderNoPipeline();
+
     // use buffering property test methods
     void shouldSetUseBuffering();
     void triggerSetUseBuffering();

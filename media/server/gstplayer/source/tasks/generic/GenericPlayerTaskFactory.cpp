@@ -51,6 +51,7 @@
 #include "tasks/generic/SetUseBuffering.h"
 #include "tasks/generic/SetVideoGeometry.h"
 #include "tasks/generic/SetVolume.h"
+#include "tasks/generic/SetupAudioDecoder.h"
 #include "tasks/generic/SetupElement.h"
 #include "tasks/generic/SetupSource.h"
 #include "tasks/generic/Shutdown.h"
@@ -177,6 +178,12 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupElement(Generi
                                                                           GstElement *element) const
 {
     return std::make_unique<tasks::generic::SetupElement>(context, m_gstWrapper, m_glibWrapper, player, element);
+}
+
+std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupAudioDecoder(GenericPlayerContext &context,
+                                                                              IGstGenericPlayerPrivate &player) const
+{
+    return std::make_unique<tasks::generic::SetupAudioDecoder>(context, player);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupSource(GenericPlayerContext &context,
