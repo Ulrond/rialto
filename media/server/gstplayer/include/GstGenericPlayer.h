@@ -203,6 +203,7 @@ private:
     bool isAsync(const MediaSourceType &mediaSourceType) const;
     void notifyPlaybackInfo() override;
     void buildAudioChain(GstElement *source) override;
+    void buildVideoChain(GstElement *source) override;
 
 private:
     /**
@@ -268,6 +269,16 @@ private:
      * @param[in] self      : Reference to the calling object.
      */
     static void audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self);
+
+    /**
+     * @brief Callback on the explicit video chain's decodebin pad-added. Called by the Gstreamer
+     *        thread. Links the decoder's freshly-exposed src pad to the backend video sink.
+     *
+     * @param[in] decodebin : the decodebin that exposed the pad.
+     * @param[in] pad       : the decoder src pad to link downstream.
+     * @param[in] self      : Reference to the calling object.
+     */
+    static void videoDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self);
 
     /**
      * @brief Enqueues a SetupAudioDecoder task. Called from the explicit audio chain's decodebin
@@ -538,6 +549,12 @@ private:
      *        link the decoder src pad to it. Set by buildAudioChain (explicit construction only).
      */
     GstElement *m_explicitAudioConvert{nullptr};
+
+    /**
+     * @brief The explicit video chain's backend video sink, held so the decodebin pad-added callback
+     *        can link the decoder src pad to it. Set by buildVideoChain (explicit construction only).
+     */
+    GstElement *m_explicitVideoSink{nullptr};
 };
 
 } // namespace firebolt::rialto::server

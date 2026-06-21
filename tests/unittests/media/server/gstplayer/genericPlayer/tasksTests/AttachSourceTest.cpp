@@ -39,6 +39,15 @@ TEST_F(AttachSourceTest, shouldBuildExplicitAudioChainWhenExplicitConstruction)
     checkAudioSourceAttached();
 }
 
+TEST_F(AttachSourceTest, shouldBuildExplicitVideoChainWhenExplicitConstruction)
+{
+    setContextExplicitConstruction();
+    shouldAttachVideoSource("video/x-h264", "au", "avc");
+    shouldBuildExplicitVideoChainOnAttach();
+    triggerAttachVideoSource("video/h264", firebolt::rialto::SegmentAlignment::AU, firebolt::rialto::StreamFormat::AVC);
+    checkVideoSourceAttached();
+}
+
 TEST_F(AttachSourceTest, shouldAttachAudioSourceWithChannelsAndRateAndDrm)
 {
     shouldAttachAudioSourceWithChannelsAndRate();

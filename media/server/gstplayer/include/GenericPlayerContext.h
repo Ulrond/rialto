@@ -128,6 +128,13 @@ struct GenericPlayerContext
     GstElement *audioSink{nullptr};
 
     /**
+     * @brief The video plane/resource id passed to IPlatformBackend::createVideoSink (explicit
+     * construction). 0 = primary/Main, 1 = secondary/PiP, derived from the video requirements at
+     * construction.
+     */
+    uint32_t videoId{0};
+
+    /**
      * @brief Flag used to check, if video decoder handle has been set.
      */
     bool isVideoHandleSet{false};

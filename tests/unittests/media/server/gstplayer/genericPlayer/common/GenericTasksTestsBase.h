@@ -165,6 +165,7 @@ protected:
     void checkAudioSourceAttached();
     void setContextExplicitConstruction();
     void shouldBuildExplicitAudioChainOnAttach();
+    void shouldBuildExplicitVideoChainOnAttach();
     void shouldAttachAudioSourceWithChannelsAndRate();
     void triggerAttachAudioSourceWithChannelsAndRateAndDrm();
     void checkAudioSourceAttachedWithDrm();

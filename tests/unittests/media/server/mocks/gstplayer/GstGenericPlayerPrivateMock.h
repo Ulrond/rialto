@@ -83,6 +83,7 @@ public:
     MOCK_METHOD(bool, hasSourceType, (const MediaSourceType &mediaSourceType), (const, override));
     MOCK_METHOD(void, notifyPlaybackInfo, (), (override));
     MOCK_METHOD(void, buildAudioChain, (GstElement * source), (override));
+    MOCK_METHOD(void, buildVideoChain, (GstElement * source), (override));
 };
 } // namespace firebolt::rialto::server
 

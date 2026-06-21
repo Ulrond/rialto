@@ -119,11 +119,15 @@ void AttachSource::addSource() const
     m_context.streamInfo.emplace(m_attachedSource->getType(), StreamInfo{appSrc, m_attachedSource->getHasDrm()});
 
     // Explicit-construction path: Rialto builds the per-stream chain itself rather than relying on
-    // playbin autoplugging. The audio chain (appsrc -> decodebin -> ... -> backend sink) is built
-    // here; video/subtitle chains follow in later stages.
+    // playbin autoplugging. The audio/video chains (appsrc -> decodebin -> ... -> backend sink) are
+    // built here; the subtitle chain follows.
     if (m_context.isExplicitConstruction && m_attachedSource->getType() == MediaSourceType::AUDIO)
     {
         m_player.buildAudioChain(appSrc);
+    }
+    else if (m_context.isExplicitConstruction && m_attachedSource->getType() == MediaSourceType::VIDEO)
+    {
+        m_player.buildVideoChain(appSrc);
     }
 
     if (caps)

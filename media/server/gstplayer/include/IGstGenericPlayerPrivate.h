@@ -342,6 +342,14 @@ public:
      * @param[in] source : the audio appsrc the chain is built around.
      */
     virtual void buildAudioChain(GstElement *source) = 0;
+
+    /**
+     * @brief Builds the explicit-construction video chain (appsrc -> decodebin -> backend video sink)
+     *        for the given source appsrc, and stores the sink. Called by the worker thread.
+     *
+     * @param[in] source : the video appsrc to build the chain from.
+     */
+    virtual void buildVideoChain(GstElement *source) = 0;
 };
 } // namespace firebolt::rialto::server
 

@@ -1525,6 +1525,11 @@ void GenericTasksTestsBase::shouldBuildExplicitAudioChainOnAttach()
     EXPECT_CALL(testContext->m_gstPlayer, buildAudioChain(&testContext->m_appSrcAudio));
 }
 
+void GenericTasksTestsBase::shouldBuildExplicitVideoChainOnAttach()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, buildVideoChain(&testContext->m_appSrcVideo));
+}
+
 void GenericTasksTestsBase::shouldAttachAudioSourceWithChannelsAndRate()
 {
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsNewEmptySimple(StrEq("audio/x-eac3")))

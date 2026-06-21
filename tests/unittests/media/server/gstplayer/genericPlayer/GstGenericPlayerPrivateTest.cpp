@@ -2463,3 +2463,44 @@ TEST_F(GstGenericPlayerPrivateTest, shouldGetExplicitAudioSink)
 
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioSink));   // released by termPipeline at teardown
 }
+
+TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitVideoChain)
+{
+    GstElement appSrc{};
+    GstElement decodebin{};
+    GstElement videoSink{};
+
+    // decodebin autoplugs the decoder; the sink comes from the platform backend, keyed by the video id
+    // derived at construction (0 = primary for the default video requirements).
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+        .WillOnce(Return(&decodebin));
+    EXPECT_CALL(*m_platformBackendMock, createVideoSink(StrEq("videosink"), 0u)).WillOnce(Return(&videoSink));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &appSrc)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &videoSink)).WillOnce(Return(TRUE));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&appSrc, &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&videoSink)).WillOnce(Return(&videoSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&videoSink));   // released by termPipeline at teardown
+
+    m_sut->buildVideoChain(&appSrc);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldGetExplicitVideoSink)
+{
+    GstElement videoSink{};
+    modifyContext(
+        [&](GenericPlayerContext &context)
+        {
+            context.isExplicitConstruction = true;
+            context.videoSink = &videoSink;
+        });
+
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(GST_OBJECT(&videoSink))).WillOnce(Return(&videoSink));
+    EXPECT_EQ(&videoSink, m_sut->getSink(firebolt::rialto::MediaSourceType::VIDEO));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&videoSink));   // released by termPipeline at teardown
+}

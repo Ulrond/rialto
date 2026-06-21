@@ -209,18 +209,25 @@ GstGenericPlayer::GstGenericPlayer(
     if ((kMinPrimaryVideoWidth > videoRequirements.maxWidth) || (kMinPrimaryVideoHeight > videoRequirements.maxHeight))
     {
         RIALTO_SERVER_LOG_MIL("Secondary video playback selected");
-        bool westerossinkSecondaryVideoResult = setWesterossinkSecondaryVideo();
-        bool ermContextResult = setErmContext();
-        if (!westerossinkSecondaryVideoResult && !ermContextResult)
+        m_context.videoId = 1; // secondary/PiP plane (explicit path passes this to createVideoSink)
+        // The playbin path binds the vendor sink to the secondary plane here; the explicit path does it
+        // via the resource id passed to IPlatformBackend::createVideoSink in buildVideoChain.
+        if (!m_context.isExplicitConstruction)
         {
-            resetWorkerThread();
-            termPipeline();
-            throw std::runtime_error("Could not set secondary video");
+            bool westerossinkSecondaryVideoResult = setWesterossinkSecondaryVideo();
+            bool ermContextResult = setErmContext();
+            if (!westerossinkSecondaryVideoResult && !ermContextResult)
+            {
+                resetWorkerThread();
+                termPipeline();
+                throw std::runtime_error("Could not set secondary video");
+            }
         }
     }
     else
     {
         RIALTO_SERVER_LOG_MIL("Primary video playback selected");
+        m_context.videoId = 0; // primary/Main plane
     }
 
     m_gstDispatcherThread = gstDispatcherThreadFactory->createGstDispatcherThread(*this, m_context.pipeline,
@@ -378,6 +385,61 @@ void GstGenericPlayer::audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad
     // Apply the pending audio-decoder properties on the worker thread — the explicit-path analogue
     // of the playbin path's reactive SetupElement decoder branch.
     self->scheduleSetupAudioDecoder();
+}
+
+void GstGenericPlayer::buildVideoChain(GstElement *source)
+{
+    if (!m_platformBackend)
+    {
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot build the explicit video chain");
+        return;
+    }
+
+    // Deterministic video chain, mirroring the audio one: decodebin autoplugs only the decoder and the
+    // backend owns the sink (bound to the resource/plane id derived at construction). No playbin, no
+    // auto-sinks.
+    GstElement *decodebin = m_gstWrapper->gstElementFactoryMake("decodebin", "viddecodebin");
+    GstElement *videoSink = m_platformBackend->createVideoSink("videosink", m_context.videoId);
+
+    if (!decodebin || !videoSink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to create the explicit video chain elements");
+        return;
+    }
+
+    GstBin *pipelineBin = GST_BIN(m_context.pipeline);
+    m_gstWrapper->gstBinAdd(pipelineBin, source);
+    m_gstWrapper->gstBinAdd(pipelineBin, decodebin);
+    m_gstWrapper->gstBinAdd(pipelineBin, videoSink);
+
+    // Static link appsrc -> decodebin; the decoder's src pad is created dynamically by decodebin, so it
+    // is linked to the video sink in the pad-added handler.
+    m_gstWrapper->gstElementLink(source, decodebin);
+
+    m_explicitVideoSink = videoSink;
+    m_glibWrapper->gSignalConnect(decodebin, "pad-added", G_CALLBACK(&GstGenericPlayer::videoDecodebinPadAdded), this);
+
+    // The video sink exists now — store it (an extra ref, released by termPipeline) so getSink and the
+    // video-sink setters reach it directly, with no playbin to read it off.
+    m_gstWrapper->gstObjectRef(videoSink);
+    m_context.videoSink = videoSink;
+
+    RIALTO_SERVER_LOG_MIL("Explicit video chain built (appsrc -> decodebin -> videosink)");
+}
+
+void GstGenericPlayer::videoDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self)
+{
+    // decodebin has exposed the decoder's src pad; link it to the backend video sink.
+    if (!self || !self->m_explicitVideoSink)
+    {
+        return;
+    }
+    GstPad *sinkPad = self->m_gstWrapper->gstElementGetStaticPad(self->m_explicitVideoSink, "sink");
+    if (sinkPad)
+    {
+        self->m_gstWrapper->gstPadLink(pad, sinkPad);
+        self->m_gstWrapper->gstObjectUnref(sinkPad);
+    }
 }
 
 void GstGenericPlayer::initMsePipelinePlaybin()
@@ -609,6 +671,10 @@ GstElement *GstGenericPlayer::getSink(const MediaSourceType &mediaSourceType) co
     if (m_context.isExplicitConstruction && mediaSourceType == MediaSourceType::AUDIO && m_context.audioSink)
     {
         return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.audioSink)));
+    }
+    if (m_context.isExplicitConstruction && mediaSourceType == MediaSourceType::VIDEO && m_context.videoSink)
+    {
+        return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.videoSink)));
     }
 
     const char *kSinkName{nullptr};
