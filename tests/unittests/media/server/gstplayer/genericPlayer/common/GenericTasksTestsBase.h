@@ -185,6 +185,7 @@ protected:
     void triggerAttachUnknownSource();
     void checkVideoSourceAttached();
     void shouldAttachSubtitleSource();
+    void shouldBuildExplicitSubtitleChainOnAttach();
     void checkSubtitleSourceAttached();
     void triggerAttachSubtitleSource();
     void shouldAttachVideoSourceWithStringCodecData();

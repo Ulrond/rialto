@@ -1805,6 +1805,31 @@ void GenericTasksTestsBase::shouldAttachSubtitleSource()
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsUnref(&testContext->m_gstCaps2));
 }
 
+void GenericTasksTestsBase::shouldBuildExplicitSubtitleChainOnAttach()
+{
+    EXPECT_CALL(*testContext->m_gstWrapper, gstCapsNewEmpty()).WillOnce(Return(&testContext->m_gstCaps2));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstCapsToString(&testContext->m_gstCaps2))
+        .WillOnce(Return(&testContext->m_capsStr));
+    EXPECT_CALL(*testContext->m_glibWrapper, gFree(&testContext->m_capsStr));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstElementFactoryMake(_, StrEq(kSubtitleName.c_str())))
+        .WillOnce(Return(&testContext->m_appSrcSubtitle));
+    // Explicit path: no playbin text-sink property; the chain appsrc -> RialtoTextTrackSink is built here.
+    EXPECT_CALL(*testContext->m_gstTextTrackSinkFactoryMock, createGstTextTrackSink())
+        .WillOnce(Return(&testContext->m_textTrackSink));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstBinAdd(GST_BIN(&testContext->m_pipeline), &testContext->m_appSrcSubtitle))
+        .WillOnce(Return(TRUE));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstBinAdd(GST_BIN(&testContext->m_pipeline), &testContext->m_textTrackSink))
+        .WillOnce(Return(TRUE));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstElementLink(&testContext->m_appSrcSubtitle, &testContext->m_textTrackSink))
+        .WillOnce(Return(TRUE));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstObjectRef(&testContext->m_textTrackSink))
+        .WillOnce(Return(&testContext->m_textTrackSink));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetCaps(GST_APP_SRC(&testContext->m_appSrcSubtitle), &testContext->m_gstCaps2));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstCapsUnref(&testContext->m_gstCaps2));
+}
+
 void GenericTasksTestsBase::triggerAttachSubtitleSource()
 {
     std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =

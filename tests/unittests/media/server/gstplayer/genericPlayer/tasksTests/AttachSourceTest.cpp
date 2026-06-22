@@ -153,6 +153,14 @@ TEST_F(AttachSourceTest, shouldAttachSubtitleSource)
     checkSubtitleSourceAttached();
 }
 
+TEST_F(AttachSourceTest, shouldBuildExplicitSubtitleChainWhenExplicitConstruction)
+{
+    setContextExplicitConstruction();
+    shouldBuildExplicitSubtitleChainOnAttach();
+    triggerAttachSubtitleSource();
+    checkSubtitleSourceAttached();
+}
+
 TEST_F(AttachSourceTest, shouldAttachVideoSourceWithStringCodecData)
 {
     shouldAttachVideoSourceWithStringCodecData();

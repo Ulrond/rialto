@@ -98,7 +98,11 @@ void AttachSource::addSource() const
         appSrc = m_gstWrapper->gstElementFactoryMake("appsrc", "subsrc");
         profilerInfo = "subsrc";
 
-        if (m_glibWrapper->gObjectClassFindProperty(G_OBJECT_GET_CLASS(m_context.pipeline), "text-sink"))
+        // Playbin path only: assign the text-track sink to playbin's text-sink property. The explicit
+        // path has no playbin (and so no text-sink property) — it builds appsrc -> RialtoTextTrackSink
+        // itself in buildSubtitleChain below.
+        if (!m_context.isExplicitConstruction &&
+            m_glibWrapper->gObjectClassFindProperty(G_OBJECT_GET_CLASS(m_context.pipeline), "text-sink"))
         {
             GstElement *elem = m_gstTextTrackSinkFactory->createGstTextTrackSink();
             m_context.subtitleSink = elem;
@@ -129,9 +133,40 @@ void AttachSource::addSource() const
     {
         m_player.buildVideoChain(appSrc);
     }
+    else if (m_context.isExplicitConstruction && m_attachedSource->getType() == MediaSourceType::SUBTITLE)
+    {
+        buildSubtitleChain(appSrc);
+    }
 
     if (caps)
         m_gstWrapper->gstCapsUnref(caps);
+}
+
+void AttachSource::buildSubtitleChain(GstElement *source) const
+{
+    // Explicit subtitle chain: appsrc -> RialtoTextTrackSink. There is no playbin (and so no text-sink
+    // property) on the explicit path, and unlike the audio/video chains the sink does not come from the
+    // platform backend but from the text-track-sink factory injected here, so the chain is built in this
+    // task rather than delegated to the player. No decoder/decodebin — the sink consumes the subtitle
+    // stream directly.
+    GstElement *subtitleSink = m_gstTextTrackSinkFactory->createGstTextTrackSink();
+    if (!subtitleSink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to create the explicit subtitle sink");
+        return;
+    }
+
+    GstBin *pipelineBin = GST_BIN(m_context.pipeline);
+    m_gstWrapper->gstBinAdd(pipelineBin, source);
+    m_gstWrapper->gstBinAdd(pipelineBin, subtitleSink);
+    m_gstWrapper->gstElementLink(source, subtitleSink);
+
+    // Store the sink (an extra ref, released by termPipeline) so the subtitle-sink setters/getters reach
+    // it directly; the bin owns the ref consumed by gstBinAdd.
+    m_gstWrapper->gstObjectRef(subtitleSink);
+    m_context.subtitleSink = subtitleSink;
+
+    RIALTO_SERVER_LOG_MIL("Explicit subtitle chain built (appsrc -> rialtotexttracksink)");
 }
 
 void AttachSource::reattachAudioSource() const
