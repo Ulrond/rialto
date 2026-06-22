@@ -419,10 +419,28 @@ void GstGenericPlayer::buildVideoChain(GstElement *source)
     m_explicitVideoSink = videoSink;
     m_glibWrapper->gSignalConnect(decodebin, "pad-added", G_CALLBACK(&GstGenericPlayer::videoDecodebinPadAdded), this);
 
-    // The video sink exists now — store it (an extra ref, released by termPipeline) so getSink and the
-    // video-sink setters reach it directly, with no playbin to read it off.
+    // The video sink exists now — unlike the playbin path, where it appeared later via element-setup
+    // and SetupElement reacted to it. Store it (an extra ref, released by termPipeline) so getSink and
+    // the video-sink setters reach it, and apply the pending video-sink properties inline (relocating
+    // the isVideoSink branch of SetupElement: geometry, immediate-output, render-frame, show-window).
     m_gstWrapper->gstObjectRef(videoSink);
     m_context.videoSink = videoSink;
+    if (!m_context.pendingGeometry.empty())
+    {
+        setVideoSinkRectangle();
+    }
+    if (m_context.pendingImmediateOutputForVideo.has_value())
+    {
+        setImmediateOutput();
+    }
+    if (m_context.pendingRenderFrame)
+    {
+        setRenderFrame();
+    }
+    if (m_context.pendingShowVideoWindow.has_value())
+    {
+        setShowVideoWindow();
+    }
 
     RIALTO_SERVER_LOG_MIL("Explicit video chain built (appsrc -> decodebin -> videosink)");
 }
@@ -440,6 +458,11 @@ void GstGenericPlayer::videoDecodebinPadAdded(GstElement *decodebin, GstPad *pad
         self->m_gstWrapper->gstPadLink(pad, sinkPad);
         self->m_gstWrapper->gstObjectUnref(sinkPad);
     }
+
+    // decodebin has autoplugged the video parser (reachable via getParser(VIDEO)), so the pending
+    // video-parser property can now be applied on the worker thread — the explicit-path analogue of
+    // the playbin path's reactive SetupElement parser branch.
+    self->scheduleSetupVideoParser();
 }
 
 void GstGenericPlayer::initMsePipelinePlaybin()
@@ -1928,6 +1951,14 @@ void GstGenericPlayer::scheduleSetupAudioDecoder()
     if (m_workerThread)
     {
         m_workerThread->enqueueTask(m_taskFactory->createSetupAudioDecoder(m_context, *this));
+    }
+}
+
+void GstGenericPlayer::scheduleSetupVideoParser()
+{
+    if (m_workerThread)
+    {
+        m_workerThread->enqueueTask(m_taskFactory->createSetupVideoParser(m_context, *this));
     }
 }
 

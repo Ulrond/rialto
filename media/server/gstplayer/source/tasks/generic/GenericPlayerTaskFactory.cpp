@@ -54,6 +54,7 @@
 #include "tasks/generic/SetupAudioDecoder.h"
 #include "tasks/generic/SetupElement.h"
 #include "tasks/generic/SetupSource.h"
+#include "tasks/generic/SetupVideoParser.h"
 #include "tasks/generic/Shutdown.h"
 #include "tasks/generic/Stop.h"
 #include "tasks/generic/SwitchSource.h"
@@ -184,6 +185,12 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupAudioDecoder(G
                                                                               IGstGenericPlayerPrivate &player) const
 {
     return std::make_unique<tasks::generic::SetupAudioDecoder>(context, player);
+}
+
+std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupVideoParser(GenericPlayerContext &context,
+                                                                              IGstGenericPlayerPrivate &player) const
+{
+    return std::make_unique<tasks::generic::SetupVideoParser>(context, player);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupSource(GenericPlayerContext &context,

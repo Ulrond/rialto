@@ -288,6 +288,13 @@ private:
     void scheduleSetupAudioDecoder();
 
     /**
+     * @brief Enqueues a SetupVideoParser task. Called from the explicit video chain's decodebin
+     *        pad-added callback (Gstreamer thread) once the parser has been autoplugged, so the
+     *        pending video-parser property is applied on the worker thread.
+     */
+    void scheduleSetupVideoParser();
+
+    /**
      * @brief Creates a Westeros sink and sets the res-usage flag for a secondary video.
      *
      * @retval true on success.

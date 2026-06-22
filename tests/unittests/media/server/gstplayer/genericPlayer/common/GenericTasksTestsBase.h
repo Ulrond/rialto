@@ -316,6 +316,11 @@ protected:
     void triggerSetupAudioDecoder();
     void triggerSetupAudioDecoderNoPipeline();
 
+    // SetupVideoParser test methods
+    void shouldSetupVideoParser();
+    void triggerSetupVideoParser();
+    void triggerSetupVideoParserNoPipeline();
+
     // use buffering property test methods
     void shouldSetUseBuffering();
     void triggerSetUseBuffering();

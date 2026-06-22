@@ -58,6 +58,7 @@
 #include "tasks/generic/SetupAudioDecoder.h"
 #include "tasks/generic/SetupElement.h"
 #include "tasks/generic/SetupSource.h"
+#include "tasks/generic/SetupVideoParser.h"
 #include "tasks/generic/Shutdown.h"
 #include "tasks/generic/Stop.h"
 #include "tasks/generic/SwitchSource.h"
@@ -3612,6 +3613,24 @@ void GenericTasksTestsBase::triggerSetupAudioDecoderNoPipeline()
 {
     testContext->m_context.pipeline = nullptr;
     firebolt::rialto::server::tasks::generic::SetupAudioDecoder task{testContext->m_context, testContext->m_gstPlayer};
+    task.execute();
+}
+
+void GenericTasksTestsBase::shouldSetupVideoParser()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, setStreamSyncMode(MediaSourceType::VIDEO)).WillOnce(Return(true));
+}
+
+void GenericTasksTestsBase::triggerSetupVideoParser()
+{
+    firebolt::rialto::server::tasks::generic::SetupVideoParser task{testContext->m_context, testContext->m_gstPlayer};
+    task.execute();
+}
+
+void GenericTasksTestsBase::triggerSetupVideoParserNoPipeline()
+{
+    testContext->m_context.pipeline = nullptr;
+    firebolt::rialto::server::tasks::generic::SetupVideoParser task{testContext->m_context, testContext->m_gstPlayer};
     task.execute();
 }
 

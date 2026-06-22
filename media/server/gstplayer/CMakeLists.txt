@@ -70,6 +70,7 @@ add_library(
         source/tasks/generic/SetupAudioDecoder.cpp
         source/tasks/generic/SetupElement.cpp
         source/tasks/generic/SetupSource.cpp
+        source/tasks/generic/SetupVideoParser.cpp
         source/tasks/generic/Shutdown.cpp
         source/tasks/generic/Stop.cpp
         source/tasks/generic/SwitchSource.cpp
