@@ -2489,6 +2489,59 @@ TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitVideoChain)
     m_sut->buildVideoChain(&appSrc);
 }
 
+// buildVideoChain relocates the reactive isVideoSink branch of SetupElement: any video-sink property
+// pending at attach time is applied inline once the backend sink is built (4c). This asserts all four
+// branches fire — geometry, immediate-output, render-frame, show-window — each reaching the stored sink
+// through the explicit getSink(VIDEO) path.
+TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitVideoChainAppliesPendingVideoProps)
+{
+    GstElement appSrc{};
+    GstElement decodebin{};
+    GstElement videoSink{};
+
+    modifyContext(
+        [&](GenericPlayerContext &context)
+        {
+            context.isExplicitConstruction = true; // so getSink(VIDEO) returns the stored sink
+            context.pendingGeometry.width = 1920;
+            context.pendingGeometry.height = 1080;
+            context.pendingImmediateOutputForVideo = true;
+            context.pendingRenderFrame = true;
+            context.pendingShowVideoWindow = true;
+        });
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+        .WillOnce(Return(&decodebin));
+    EXPECT_CALL(*m_platformBackendMock, createVideoSink(StrEq("videosink"), 0u)).WillOnce(Return(&videoSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &appSrc)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &videoSink)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&appSrc, &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
+
+    // The sink is ref'd once for the context store plus once per getSink call (one per applied prop);
+    // each prop's setter and the teardown release a ref.
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&videoSink)).Times(5).WillRepeatedly(Return(&videoSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&videoSink)).Times(5);
+
+    // geometry -> rectangle
+    EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("rectangle"))).WillOnce(Return(&m_rectangleSpec));
+    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&videoSink, StrEq("rectangle")));
+    // immediate-output
+    expectSetProperty(m_glibWrapperMock, m_gstWrapperMock, &videoSink, kImmediateOutputStr, true);
+    // render-frame -> frame-step-on-preroll (set to 1, step event, reset to 0)
+    expectSetProperty(m_glibWrapperMock, m_gstWrapperMock, &videoSink, kFrameStepOnPrerollStr, 1);
+    EXPECT_CALL(*m_gstWrapperMock, gstEventNewStep(GST_FORMAT_BUFFERS, 1, 1.0, true, false)).WillOnce(Return(&m_event));
+    EXPECT_CALL(*m_glibWrapperMock, gObjectSetIntStub(_, StrEq(kFrameStepOnPrerollStr.c_str()), 0)).Times(1);
+    EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(&videoSink, &m_event));
+    // show-video-window
+    EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("show-video-window")))
+        .WillOnce(Return(&m_showVideoWindowSpec));
+    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&videoSink, StrEq("show-video-window")));
+
+    m_sut->buildVideoChain(&appSrc);
+}
+
 TEST_F(GstGenericPlayerPrivateTest, shouldGetExplicitVideoSink)
 {
     GstElement videoSink{};
