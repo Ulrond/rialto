@@ -77,6 +77,14 @@ protected:
     GstElement m_audioSink{};
     GstCaps m_audioCaps{};
     gchar m_capsStr{};
+    GstElement m_videoAppSrc{};
+    GstElement m_videoDecodebin{};
+    GstElement m_videoSink{};
+    GstCaps m_videoCaps{};
+    GstElement m_subtitleAppSrc{};
+    GstElement m_textTrackSink{};
+    GstCaps m_subtitleCaps{};
+    GParamSpec m_textSinkSpec{};
 
     bool isExplicit() const { return GetParam() == ConstructionMode::Explicit; }
 
@@ -199,6 +207,109 @@ protected:
                 }));
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcEndOfStream(GST_APP_SRC(&m_appSrc))).WillOnce(Return(GST_FLOW_OK));
     }
+
+    // Expectations for attaching an H264 video source. Both paths build the vidsrc appsrc and set its
+    // caps; the explicit path additionally builds the deterministic decodebin chain and takes the SoC
+    // video sink from the PlatformBackend keyed by the video id derived at construction (0 = primary for
+    // the default video requirements). The playbin path autoplugs the decoder/sink lazily, so neither
+    // happens at attach time on that path (and the video sink is never stored, so termPipeline has
+    // nothing to release).
+    void expectAttachVideo()
+    {
+        EXPECT_CALL(m_taskFactoryMock, createAttachSource(_, _, _))
+            .WillOnce(Invoke(
+                [this](GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                       const std::unique_ptr<IMediaPipeline::MediaSource> &source) -> std::unique_ptr<IPlayerTask>
+                {
+                    return std::make_unique<firebolt::rialto::server::tasks::generic::AttachSource>(
+                        context, m_gstWrapperMock, m_glibWrapperMock, m_textTrackSinkFactoryMock, player, source);
+                }));
+
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("video/x-h264"))).WillOnce(Return(&m_videoCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&m_videoCaps)).WillOnce(Return(&m_capsStr));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_capsStr));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(_, StrEq("vidsrc"))).WillOnce(Return(&m_videoAppSrc));
+        EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_videoAppSrc), &m_videoCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_videoCaps));
+
+        if (isExplicit())
+        {
+            EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+                .WillOnce(Return(&m_videoDecodebin));
+            EXPECT_CALL(*m_platformBackendMock, createVideoSink(StrEq("videosink"), 0u)).WillOnce(Return(&m_videoSink));
+            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoAppSrc)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoDecodebin)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoSink)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_videoAppSrc, &m_videoDecodebin)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_videoDecodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
+            EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_videoSink)).WillOnce(Return(&m_videoSink));
+            EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_videoSink)); // released by termPipeline at destroy
+        }
+    }
+
+    std::unique_ptr<IMediaPipeline::MediaSource> makeVideoSource()
+    {
+        return std::make_unique<IMediaPipeline::MediaSourceVideo>("video/h264", false);
+    }
+
+    // Run the real Eos task for the video source; EOS is signalled on the vidsrc appsrc on both paths.
+    void expectEosVideo()
+    {
+        EXPECT_CALL(m_taskFactoryMock, createEos(_, _, MediaSourceType::VIDEO))
+            .WillOnce(Invoke(
+                [this](GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                       const firebolt::rialto::MediaSourceType &type) -> std::unique_ptr<IPlayerTask> {
+                    return std::make_unique<firebolt::rialto::server::tasks::generic::Eos>(context, player,
+                                                                                          m_gstWrapperMock, type);
+                }));
+        EXPECT_CALL(*m_gstWrapperMock, gstAppSrcEndOfStream(GST_APP_SRC(&m_videoAppSrc))).WillOnce(Return(GST_FLOW_OK));
+    }
+
+    // Expectations for attaching a subtitle source. Both paths build the subsrc appsrc, set its caps and
+    // create the text-track sink. The playbin path assigns it to playbin's text-sink property; the
+    // explicit path has no playbin (no text-sink property) and instead builds appsrc -> sink itself in
+    // buildSubtitleChain (an extra ref taken on the stored sink). The stored subtitle sink is released by
+    // termPipeline at destroy on both paths.
+    void expectAttachSubtitle()
+    {
+        EXPECT_CALL(m_taskFactoryMock, createAttachSource(_, _, _))
+            .WillOnce(Invoke(
+                [this](GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                       const std::unique_ptr<IMediaPipeline::MediaSource> &source) -> std::unique_ptr<IPlayerTask>
+                {
+                    return std::make_unique<firebolt::rialto::server::tasks::generic::AttachSource>(
+                        context, m_gstWrapperMock, m_glibWrapperMock, m_textTrackSinkFactoryMock, player, source);
+                }));
+
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmpty()).WillOnce(Return(&m_subtitleCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&m_subtitleCaps)).WillOnce(Return(&m_capsStr));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_capsStr));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(_, StrEq("subsrc"))).WillOnce(Return(&m_subtitleAppSrc));
+        EXPECT_CALL(*m_textTrackSinkFactoryMock, createGstTextTrackSink()).WillOnce(Return(&m_textTrackSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_subtitleAppSrc), &m_subtitleCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_subtitleCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_textTrackSink)); // released by termPipeline at destroy
+
+        if (isExplicit())
+        {
+            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_subtitleAppSrc)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_textTrackSink)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_subtitleAppSrc, &m_textTrackSink)).WillOnce(Return(TRUE));
+            EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_textTrackSink)).WillOnce(Return(&m_textTrackSink));
+        }
+        else
+        {
+            EXPECT_CALL(*m_glibWrapperMock,
+                        gObjectClassFindProperty(G_OBJECT_GET_CLASS(&m_pipeline), StrEq("text-sink")))
+                .WillOnce(Return(&m_textSinkSpec));
+            EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_pipeline, StrEq("text-sink")));
+        }
+    }
+
+    std::unique_ptr<IMediaPipeline::MediaSource> makeSubtitleSource()
+    {
+        return std::make_unique<IMediaPipeline::MediaSourceSubtitle>("application/ttml+xml", "text-track-id");
+    }
 };
 
 /**
@@ -271,6 +382,57 @@ TEST_P(GstGenericPlayerParityTest, SetEosSignalsAudioAppSrc)
 
     expectEosAudio();
     m_sut->setEos(MediaSourceType::AUDIO);
+
+    destroy();
+}
+
+/**
+ * Parity: attaching a video source builds the vidsrc appsrc on both paths; the explicit path also
+ * builds the decodebin chain and sources the sink from the PlatformBackend keyed by the video id (the
+ * playbin path defers decoder/sink creation to autoplug). Exercises attach -> real buildVideoChain
+ * end-to-end.
+ */
+TEST_P(GstGenericPlayerParityTest, AttachVideoSourceBuildsExpectedGraph)
+{
+    arrangeAndConstruct();
+
+    expectAttachVideo();
+    auto source{makeVideoSource()};
+    m_sut->attachSource(source);
+
+    destroy();
+}
+
+/**
+ * Parity: after a video source is attached, EOS is signalled on its appsrc regardless of
+ * construction path.
+ */
+TEST_P(GstGenericPlayerParityTest, SetEosSignalsVideoAppSrc)
+{
+    arrangeAndConstruct();
+
+    expectAttachVideo();
+    auto source{makeVideoSource()};
+    m_sut->attachSource(source);
+
+    expectEosVideo();
+    m_sut->setEos(MediaSourceType::VIDEO);
+
+    destroy();
+}
+
+/**
+ * Parity: attaching a subtitle source builds the subsrc appsrc and the text-track sink on both paths.
+ * The playbin path assigns the sink to playbin's text-sink property; the explicit path builds
+ * appsrc -> RialtoTextTrackSink itself. Exercises attach -> real buildSubtitleChain end-to-end.
+ */
+TEST_P(GstGenericPlayerParityTest, AttachSubtitleSourceBuildsExpectedGraph)
+{
+    arrangeAndConstruct();
+
+    expectAttachSubtitle();
+    auto source{makeSubtitleSource()};
+    m_sut->attachSource(source);
 
     destroy();
 }
