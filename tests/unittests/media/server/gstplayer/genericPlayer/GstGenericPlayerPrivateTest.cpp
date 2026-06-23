@@ -2119,6 +2119,108 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachMpegAudioSource)
     gst_object_unref(fakeSink);
 }
 
+TEST_F(GstGenericPlayerPrivateTest, shouldRefreshPlaybackGroupHandlesOnExplicitReattach)
+{
+    // On the explicit-construction path there are no playbin signals (deep-element-added / typefind
+    // have-type) to populate the playback group the codec-switch machinery reads. reattachSource must
+    // refresh the audio decoder/parser/typefind from the live decodebin before the switch so the
+    // external rdk-gstreamer-utils performAudioTrackCodecChannelSwitch operates on current elements.
+    GstAppSrc audioSrc{};
+    GstCaps newGstCaps{};
+    GstCaps oldGstCaps{};
+    gchar capsStr[13]{"audio/x-eac3"};
+    GstElement decodebin{};
+    GstElement audioDecoder{};
+    GstElement audioParse{};
+    GstElement audioTypefind{};
+    GstIterator typefindIt{};
+    gchar typefindName[]{"audiotypefind0"};
+    GstElement *fakeSink = gst_element_factory_make("fakesink", "fakesink");
+    setPipelineState(GST_STATE_PAUSED);
+    firebolt::rialto::wrappers::PlaybackGroupPrivate *playbackGroup{nullptr};
+    modifyContext(
+        [&](GenericPlayerContext &context)
+        {
+            context.isExplicitConstruction = true;
+            context.audioSink = fakeSink;
+            context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
+            context.playbackGroup.m_curAudioDecodeBin = &decodebin;
+            playbackGroup = &context.playbackGroup;
+        });
+
+    // updateAudioPlaybackGroupHandles: getDecoder + getParser iterate the pipeline; getAudioTypefind
+    // iterates the audio decodebin (a distinct iterator) and matches by name.
+    EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline)))
+        .WillOnce(Return(&m_it))
+        .WillOnce(Return(&m_it));
+    EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _))
+        .WillOnce(Return(GST_ITERATOR_OK))
+        .WillOnce(Return(GST_ITERATOR_OK));
+    EXPECT_CALL(*m_glibWrapperMock, gValueGetObject(_))
+        .WillOnce(Return(&audioDecoder))
+        .WillOnce(Return(&audioParse))
+        .WillOnce(Return(&audioTypefind));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(&audioDecoder)).WillOnce(Return(m_factory));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(&audioParse)).WillOnce(Return(m_factory));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListIsType(m_factory, (GST_ELEMENT_FACTORY_TYPE_DECODER |
+                                                                           GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO)))
+        .WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListIsType(m_factory, (GST_ELEMENT_FACTORY_TYPE_PARSER |
+                                                                           GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO)))
+        .WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&decodebin))).WillOnce(Return(&typefindIt));
+    EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&typefindIt, _)).WillOnce(Return(GST_ITERATOR_OK));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetName(&audioTypefind)).WillOnce(Return(typefindName));
+    EXPECT_CALL(*m_glibWrapperMock, gStrrstr(typefindName, StrEq("typefind"))).WillOnce(Return(typefindName));
+    EXPECT_CALL(*m_glibWrapperMock, gFree(typefindName));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioDecoder)).WillOnce(Return(&audioDecoder));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioParse)).WillOnce(Return(&audioParse));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioTypefind)).WillOnce(Return(&audioTypefind));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioDecoder));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioParse));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioTypefind));
+    EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_)).Times(4);
+    EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it)).Times(2);
+    EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&typefindIt));
+
+    // getPosition + caps comparison drive the switch.
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&newGstCaps));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsSetSimpleIntStub(&newGstCaps, StrEq("mpegversion"), G_TYPE_INT, 4));
+    EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
+    EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
+    EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
+    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
+
+    // getSink(AUDIO) on the explicit path returns the stored backend sink directly (no playbin read).
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(GST_OBJECT(fakeSink))).WillOnce(Return(fakeSink));
+    // Unref'd twice: once in reattachSource after getSink, and once by termPipeline at teardown (the sink
+    // is stored as m_context.audioSink here).
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink)).Times(2);
+    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("fakesink"), StrEq("amlhalasink"))).WillOnce(Return(FALSE));
+
+    // The external vendor wrapper receives the now-populated playback group.
+    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
+                performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
+        .WillOnce(Return(true));
+
+    std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
+        std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/aac", false);
+    EXPECT_TRUE(m_sut->reattachSource(source));
+
+    // The live decoder/parser/typefind were refreshed onto the playback group before the switch.
+    EXPECT_EQ(playbackGroup->m_curAudioDecoder, &audioDecoder);
+    EXPECT_EQ(playbackGroup->m_curAudioParse, &audioParse);
+    EXPECT_EQ(playbackGroup->m_curAudioTypefind, &audioTypefind);
+    gst_object_unref(fakeSink);
+}
+
 TEST_F(GstGenericPlayerPrivateTest, shouldReattachEac3AudioSource)
 {
     GstAppSrc audioSrc{};
@@ -2459,14 +2561,25 @@ TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitAudioChain)
 
     EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
 
-    // The sink is stored in the context (an extra ref) so getSink / the audio-sink setters reach it.
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioSink)).WillOnce(Return(&audioSink));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioSink));   // released by termPipeline at teardown
+    // The sink is stored twice (each with its own ref): once as m_context.audioSink so getSink / the
+    // audio-sink setters reach it, and once as the playback group's audio playsink-bin analogue (the
+    // explicit topology has no playsink wrapper). Both refs are released by termPipeline at teardown.
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioSink)).Times(2).WillRepeatedly(Return(&audioSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioSink)).Times(2);
 
     // Underflow telemetry is scanned on the backend sink (none on the reference autoaudiosink).
     expectNoStreamSignals(&audioSink, false);
 
+    firebolt::rialto::wrappers::PlaybackGroupPrivate *playbackGroup{nullptr};
+    modifyContext([&](GenericPlayerContext &context) { playbackGroup = &context.playbackGroup; });
+
     m_sut->buildAudioChain(&appSrc);
+
+    // The stable codec-switch handles are populated at construction: the pipeline, the audio decodebin,
+    // and the backend sink standing in for the audio playsink bin.
+    EXPECT_EQ(playbackGroup->m_gstPipeline, &m_pipeline);
+    EXPECT_EQ(playbackGroup->m_curAudioDecodeBin.load(), &decodebin);
+    EXPECT_EQ(playbackGroup->m_curAudioPlaysinkBin, &audioSink);
 }
 
 TEST_F(GstGenericPlayerPrivateTest, shouldGetExplicitAudioSink)

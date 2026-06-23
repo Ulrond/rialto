@@ -182,8 +182,10 @@ protected:
             EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioConvert, &m_audioResample)).WillOnce(Return(TRUE));
             EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioResample, &m_audioSink)).WillOnce(Return(TRUE));
             EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
-            EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_audioSink)).WillOnce(Return(&m_audioSink));
-            EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_audioSink)); // released by termPipeline at destroy
+            // The sink is stored twice (each with its own ref): as m_context.audioSink and as the
+            // playback group's audio playsink-bin analogue; both released by termPipeline at destroy.
+            EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_audioSink)).Times(2).WillRepeatedly(Return(&m_audioSink));
+            EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_audioSink)).Times(2);
             expectNoSinkSignals(&m_audioSink, false);
         }
     }

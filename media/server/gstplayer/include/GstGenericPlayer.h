@@ -380,6 +380,25 @@ private:
     GstElement *getParser(const MediaSourceType &mediaSourceType);
 
     /**
+     * @brief Gets the audio typefind element from within the audio decodebin (explicit-construction path).
+     *
+     * Located by name rather than factory type; scoped to m_curAudioDecodeBin so a per-stream video
+     * decodebin's typefind is not matched.
+     *
+     * @retval The typefind, NULL if not found
+     */
+    GstElement *getAudioTypefind();
+
+    /**
+     * @brief Refreshes the audio decoder/parser/typefind playback-group handles from the live decodebin.
+     *
+     * Explicit-construction analogue of the playbin path's DeepElementAdded: there are no playbin signals
+     * to populate the playback group that the audio-codec-switch machinery reads, so the per-switch
+     * handles are refreshed from the graph just before a codec switch. Called by worker thread only.
+     */
+    void updateAudioPlaybackGroupHandles();
+
+    /**
      * @brief Constructs new Audio Attributes structure based on MediaSource
      *        Called by worker thread only!
      *

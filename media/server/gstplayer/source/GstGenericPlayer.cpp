@@ -386,6 +386,19 @@ void GstGenericPlayer::buildAudioChain(GstElement *source)
     // reporting is preserved; the autoplugged decoder is wired separately once it appears.
     connectStreamSignals(audioSink, MediaSourceType::AUDIO);
 
+    // Populate the stable playback-group handles the audio-codec-switch machinery reads. On the
+    // playbin path these are set reactively (DeepElementAdded/UpdatePlaybackGroup off playbin signals);
+    // the explicit path has no such signals, so the handles we own at construction are stored here and
+    // the per-switch ones (decoder/parser/typefind) are refreshed from the live graph in reattachSource.
+    //   - m_gstPipeline / m_curAudioDecodeBin: owned directly here.
+    //   - m_curAudioPlaysinkBin: the explicit topology has no playsink wrapper bin, so the backend audio
+    //     sink stands in as the audio output branch that haltAudioPlayback/resumeAudioPlayback gate. An
+    //     extra ref is taken to match the playbin path's ownership; termPipeline releases it.
+    m_context.playbackGroup.m_gstPipeline = m_context.pipeline;
+    m_context.playbackGroup.m_curAudioDecodeBin = decodebin;
+    m_gstWrapper->gstObjectRef(audioSink);
+    m_context.playbackGroup.m_curAudioPlaysinkBin = audioSink;
+
     RIALTO_SERVER_LOG_MIL(
         "Explicit audio chain built (appsrc -> decodebin -> audioconvert -> audioresample -> audiosink)");
 }
@@ -956,6 +969,86 @@ GstElement *GstGenericPlayer::getParser(const MediaSourceType &mediaSourceType)
     m_gstWrapper->gstIteratorFree(it);
 
     return nullptr;
+}
+
+GstElement *GstGenericPlayer::getAudioTypefind()
+{
+    // The typefind has no decoder/parser factory type to match on, so it is located by name within the
+    // audio decodebin (mirroring DeepElementAdded/UpdatePlaybackGroup's "typefind" name match on the
+    // playbin path). Scoped to the audio decodebin so a per-stream video decodebin's typefind is not
+    // picked up by mistake.
+    if (!m_context.playbackGroup.m_curAudioDecodeBin)
+    {
+        return nullptr;
+    }
+
+    GstIterator *it = m_gstWrapper->gstBinIterateRecurse(GST_BIN(m_context.playbackGroup.m_curAudioDecodeBin.load()));
+    GValue item = G_VALUE_INIT;
+    gboolean done = FALSE;
+    GstElement *typefind = nullptr;
+
+    while (!done)
+    {
+        switch (m_gstWrapper->gstIteratorNext(it, &item))
+        {
+        case GST_ITERATOR_OK:
+        {
+            GstElement *element = GST_ELEMENT(m_glibWrapper->gValueGetObject(&item));
+            gchar *name = m_gstWrapper->gstElementGetName(element);
+            if (name && m_glibWrapper->gStrrstr(name, "typefind"))
+            {
+                typefind = GST_ELEMENT(m_gstWrapper->gstObjectRef(element));
+            }
+            m_glibWrapper->gFree(name);
+            m_glibWrapper->gValueUnset(&item);
+            if (typefind)
+            {
+                done = TRUE;
+            }
+            break;
+        }
+        case GST_ITERATOR_RESYNC:
+            m_gstWrapper->gstIteratorResync(it);
+            break;
+        case GST_ITERATOR_ERROR:
+        case GST_ITERATOR_DONE:
+            done = TRUE;
+            break;
+        }
+    }
+
+    m_glibWrapper->gValueUnset(&item);
+    m_gstWrapper->gstIteratorFree(it);
+
+    return typefind;
+}
+
+void GstGenericPlayer::updateAudioPlaybackGroupHandles()
+{
+    // Explicit-path analogue of DeepElementAdded: the codec-switch machinery (switchAudioCodec and the
+    // external rdk-gstreamer-utils performAudioTrackCodecChannelSwitch) reads the current audio
+    // decoder/parser/typefind off the playback group. There are no playbin signals to populate them, so
+    // they are refreshed from the live decodebin just before the swap. Storing borrowed pointers matches
+    // DeepElementAdded's non-owning contract (the decodebin owns the elements); refreshing per switch is
+    // robust to switchAudioCodec nulling and recreating the decoder/parser across successive switches.
+    GstElement *decoder = getDecoder(MediaSourceType::AUDIO);
+    m_context.playbackGroup.m_curAudioDecoder = decoder;
+    if (decoder)
+    {
+        m_gstWrapper->gstObjectUnref(decoder);
+    }
+    GstElement *parser = getParser(MediaSourceType::AUDIO);
+    m_context.playbackGroup.m_curAudioParse = parser;
+    if (parser)
+    {
+        m_gstWrapper->gstObjectUnref(parser);
+    }
+    GstElement *typefind = getAudioTypefind();
+    m_context.playbackGroup.m_curAudioTypefind = typefind;
+    if (typefind)
+    {
+        m_gstWrapper->gstObjectUnref(typefind);
+    }
 }
 
 std::optional<firebolt::rialto::wrappers::AudioAttributesPrivate>
@@ -1889,6 +1982,16 @@ bool GstGenericPlayer::reattachSource(const std::unique_ptr<IMediaPipeline::Medi
     {
         RIALTO_SERVER_LOG_ERROR("Failed to create audio attributes");
         return false;
+    }
+
+    if (m_context.isExplicitConstruction)
+    {
+        // No playbin signals populate the playback group on the explicit path; refresh the audio
+        // decoder/parser/typefind from the live decodebin before the codec switch so both the
+        // amlhalasink (haltAudioPlayback/switchAudioCodec/resumeAudioPlayback) and the external
+        // rdk-gstreamer-utils paths operate on current elements. The stable handles (pipeline,
+        // decodebin, sink-as-playsink-bin) were stored at construction in buildAudioChain.
+        updateAudioPlaybackGroupHandles();
     }
 
     long long currentDispPts = getPosition(m_context.pipeline); // NOLINT(runtime/int)
