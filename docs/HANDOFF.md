@@ -5,7 +5,7 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-22_
+_Last updated: 2026-06-23_
 
 ---
 
@@ -214,38 +214,37 @@ confirmed** — it is a *possible* future swap, not a committed phase. GStreamer
       explicit path). Sinks wired synchronously in `buildAudioChain`/`buildVideoChain`; autoplugged
       decoders wired via new `IGstGenericPlayerPrivate::connectDecoderSignals(type)` called from
       `SetupAudioDecoder`/`SetupVideoParser`. servergstplayer 705/705, servermain 471/471.
-    - **5a-switch — BLOCKER, IN PROGRESS (bigger than 5a; user chose to build it).** Seamless
-      **mid-stream audio codec switching** (`reattachSource` → `performAudioTrackCodecChannelSwitch(
-      &m_context.playbackGroup,…)`, and `switchAudioCodec`) depends on `GenericPlayerContext::playbackGroup`,
-      which is populated ONLY by `DeepElementAdded` off the playbin `deep-element-added` signal. On the
-      explicit path playbackGroup is empty → codec switching fails/degrades. Flipping the default (5b)
-      without migrating this regresses AAMP audio-track switching.
-      **Starting map (read these first):**
-      - Writer (playbin-only): `tasks/generic/DeepElementAdded.cpp` (sets `playbackGroup.m_curAudioParse`/
-        `m_curAudioDecoder`/`m_curAudioTypefind`/`m_curAudioPlaysinkBin`); `tasks/generic/UpdatePlaybackGroup.cpp`
-        + `GstGenericPlayer::updatePlaybackGroup` (sets `m_curAudioDecodeBin`). Both fire off playbin signals
-        wired in `initMsePipelinePlaybin`.
-      - Consumers: `GstGenericPlayer::reattachSource` (audio codec switch entry; calls
-        `performAudioTrackCodecChannelSwitch(&playbackGroup,…)` — amlhalasink uses Rialto's own
-        `performAudioTrackCodecChannelSwitch`, else `m_rdkGstreamerUtilsWrapper`'s), `switchAudioCodec`,
-        `firstTimeSwitchFromAC3toAAC` (GstGenericPlayer.cpp ~1036–1300). Entry task: `tasks/generic/SwitchSource.cpp`
-        → `m_player.reattachSource`. Also `AttachSource::reattachAudioSource` (re-attach existing audio).
-      - `GenericPlayerContext::playbackGroup` struct = `PlaybackGroupPrivate` (members above) in
-        `GenericPlayerContext.h`.
-      **Migration question:** on the explicit decodebin chain, populate an equivalent
-      decoder/parser/decodebin handle set (the audio decoder is reachable via `getDecoder(AUDIO)`; the
-      decodebin is the `auddecodebin` built in `buildAudioChain`; parser via `getParser(AUDIO)`), so
-      `performAudioTrackCodecChannelSwitch` has what it needs — OR re-implement the swap for the explicit
-      topology. Verify the amlhalasink vs rdk-utils branches both work against the explicit structure.
-      Decision/approach to confirm at the start of the work.
+    - **5a-switch — LANDED (`df30cb97`).** Seamless **mid-stream audio codec switching** on the explicit
+      path. `reattachSource` → `performAudioTrackCodecChannelSwitch(&m_context.playbackGroup,…)` /
+      `switchAudioCodec` reads the audio decoder/parser/typefind/decodebin/pipeline off
+      `GenericPlayerContext::playbackGroup`, which on the playbin path is populated reactively by
+      `DeepElementAdded`/`UpdatePlaybackGroup` off playbin signals — empty on the explicit path, so the
+      switch would fail/degrade once the default flips.
+      **Decision (settled, not a real fork):** the external rdk-gstreamer-utils
+      `performAudioTrackCodecChannelSwitch` takes the whole `playbackGroup` and cannot be reimplemented, so
+      the group is **populated on the explicit path** (re-implementing the swap is not viable for the vendor
+      SoCs). Consumers (`reattachSource`, `getSink`) then need no rewrite; both the amlhalasink (halt/switch/
+      resume) and rdk-utils paths operate on current elements.
+      **Implementation (two writes):**
+      - `buildAudioChain` stores the **stable handles** owned at construction: `m_gstPipeline` = pipeline,
+        `m_curAudioDecodeBin` = the `auddecodebin`, and `m_curAudioPlaysinkBin` = the backend audio sink
+        (the explicit topology has no playsink wrapper; the sink is the audio output branch that
+        haltAudioPlayback/resumeAudioPlayback gate — extra ref released by the existing termPipeline unref).
+      - `reattachSource` (explicit branch, before the swap) refreshes the **per-switch handles** from the
+        live graph via `getDecoder(AUDIO)`/`getParser(AUDIO)`/new decodebin-scoped `getAudioTypefind()` —
+        refreshing per switch is robust to `switchAudioCodec` nulling and recreating decoder/parser across
+        successive switches. New private methods: `getAudioTypefind()`, `updateAudioPlaybackGroupHandles()`.
+      Tests: `shouldRefreshPlaybackGroupHandlesOnExplicitReattach`, `shouldBuildExplicitAudioChain` extended
+      to assert the stable stores, parity audio arrange updated for the 2nd sink ref. servergstplayer
+      706/706, servermain 471/471. **Stage 5 is now unblocked → 5b (flip default) is the next item.**
     - **5b (after parity): flip default to explicit + remove the `RIALTO_EXPLICIT_PIPELINE` switch.**
     - **5c: delete playbin construction** (`initMsePipelinePlaybin`, `setPlaybinFlags`/`getGstPlayFlag`/
       `shouldEnableNativeAudio`, playsink/uri tweaks).
     - **5d: delete** auto-sink unwrapping (`getSinkChildIfAutoVideoSink`/`Audio`) + the `getSink`-via-playbin
       branches + now-dead reactive `SetupElement`/`DeepElementAdded`/`SetupSource` branches; prune/collapse
       tests (ParityTest `{Playbin,Explicit}` → single path). Final `build_ut.py` + `build_ct.py` sweep.
-    - Deletion map (5c/5d) is fully scoped and ready; the gate is reaching feature parity (5a done,
-      5a-switch pending).
+    - Deletion map (5c/5d) is fully scoped and ready; the gate is reaching feature parity (5a + 5a-switch
+      done → parity reached; 5b flip is next).
 - **dlopen loader** for the per-SoC `.so` — lifts the transitional amlhalasink/rtkaudiosink
   ladder out of `LinuxPlatformBackend::createAudioSink` into the SoC `.so` (the "SoC lower
   level"); the reference backend then keeps only autoaudiosink.

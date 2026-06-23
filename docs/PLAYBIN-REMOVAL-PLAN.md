@@ -141,4 +141,7 @@ one, superseding the primary/secondary boolean:
   paths and the rialto-gstreamer test corpus before stage 3; fall back to `decodebin` for any
   uncovered codec rather than regress.
 - **Underflow / first-frame / playback-group** semantics must be preserved for AAMP telemetry —
-  re-wire the same signals onto the explicit decoder/sink and assert in unit tests.
+  re-wire the same signals onto the explicit decoder/sink and assert in unit tests. *Done:* underflow
+  + first-frame in 5a; audio-codec-switch playback-group in 5a-switch (`buildAudioChain` stores the
+  stable pipeline/decodebin/sink handles, `reattachSource` refreshes decoder/parser/typefind from the
+  live graph before the swap). Stage 5 is unblocked — 5b flips the default.

@@ -20,6 +20,7 @@
 #include "GstGenericPlayerTestCommon.h"
 #include "Matchers.h"
 #include "PlayerTaskMock.h"
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <utility>
@@ -137,11 +138,18 @@ void GstGenericPlayerTestCommon::initFactories()
 
 void GstGenericPlayerTestCommon::expectMakePlaybin()
 {
+    // Explicit construction is the production default; opt out to the legacy playbin path under test.
+    // Set on the playbin construction expectation so every playbin test selects it deterministically,
+    // whether it goes through gstPlayerWillBeCreated or arranges expectMakePlaybin directly.
+    setenv("RIALTO_EXPLICIT_PIPELINE", "0", 1);
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("playbin"), _)).WillOnce(Return(&m_pipeline));
 }
 
 void GstGenericPlayerTestCommon::expectMakePipeline()
 {
+    // Assert the explicit (default) path explicitly so construction is deterministic regardless of any
+    // opt-out left set by a prior playbin test in the same binary.
+    setenv("RIALTO_EXPLICIT_PIPELINE", "1", 1);
     EXPECT_CALL(*m_gstWrapperMock, gstPipelineNew(StrEq("media_pipeline"))).WillOnce(Return(&m_pipeline));
 }
 

@@ -287,16 +287,17 @@ GstGenericPlayer::~GstGenericPlayer()
 
 void GstGenericPlayer::initMsePipeline()
 {
-    // Transitional opt-in switch for the explicit-construction path (playbin removal). Default is
-    // playbin; set RIALTO_EXPLICIT_PIPELINE=1 to build the pipeline explicitly. The switch (and the
-    // playbin path) is removed once explicit construction is the default on every platform.
+    // Explicit construction is the default (playbin removal). The transitional opt-out switch
+    // RIALTO_EXPLICIT_PIPELINE=0 selects the legacy playbin path as a per-platform fallback while it is
+    // still being proven; the switch (and the playbin path) is removed once explicit construction is
+    // proven on every platform.
     const char *explicitMode = std::getenv("RIALTO_EXPLICIT_PIPELINE");
-    if (explicitMode && explicitMode[0] == '1')
+    if (explicitMode && explicitMode[0] == '0')
     {
-        initMsePipelineExplicit();
+        initMsePipelinePlaybin();
         return;
     }
-    initMsePipelinePlaybin();
+    initMsePipelineExplicit();
 }
 
 void GstGenericPlayer::initMsePipelineExplicit()

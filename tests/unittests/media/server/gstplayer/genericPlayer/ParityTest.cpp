@@ -27,12 +27,12 @@
  *
  * Both parameters are live and EXECUTION-level: the player is built with the real
  * GenericPlayerTaskFactory and a synchronous worker (tasks run inline on enqueue), so the public
- * API drives real tasks through the real player against the mocked GStreamer wrappers. Playbin
- * builds via GStreamer playbin; Explicit drives the explicit-construction path
- * (RIALTO_EXPLICIT_PIPELINE opt-in) and the SoC sinks come from the PlatformBackend. The same
- * spec runs against both so the eventual default-flip is low-risk; where the two paths legitimately
- * differ (playbin autoplugs/detects later vs explicit builds the chain now) the per-mode arrange
- * encodes that, while the observable end-state asserted is the same.
+ * API drives real tasks through the real player against the mocked GStreamer wrappers. Explicit is
+ * the production default; Playbin drives the legacy path via the RIALTO_EXPLICIT_PIPELINE=0 opt-out
+ * and the SoC sinks come from the PlatformBackend on the explicit path. The same spec runs against
+ * both during the migration; where the two paths legitimately differ (playbin autoplugs/detects
+ * later vs explicit builds the chain now) the per-mode arrange encodes that, while the observable
+ * end-state asserted is the same.
  */
 
 #include "GstGenericPlayerTestCommon.h"
