@@ -53,6 +53,24 @@ bool operator==(const firebolt::rialto::server::SegmentData &lhs, const firebolt
     return (lhs.position == rhs.position) && (lhs.resetTime == rhs.resetTime) && (lhs.appliedRate == rhs.appliedRate) &&
            (lhs.stopPosition == rhs.stopPosition);
 }
+
+// Underflow / first-video-frame signal callbacks for the explicit-construction path. These mirror the
+// playbin path's SetupElement callbacks: the GStreamer thread emits the signal, and we schedule the
+// corresponding task on the worker thread. The user data is the IGstGenericPlayerPrivate.
+void explicitAudioUnderflowCallback(GstElement *object, guint fifoDepth, gpointer queueDepth, gpointer self)
+{
+    static_cast<firebolt::rialto::server::IGstGenericPlayerPrivate *>(self)->scheduleAudioUnderflow();
+}
+
+void explicitVideoUnderflowCallback(GstElement *object, guint fifoDepth, gpointer queueDepth, gpointer self)
+{
+    static_cast<firebolt::rialto::server::IGstGenericPlayerPrivate *>(self)->scheduleVideoUnderflow();
+}
+
+void explicitFirstVideoFrameCallback(GstElement *object, guint fifoDepth, gpointer queueDepth, gpointer self)
+{
+    static_cast<firebolt::rialto::server::IGstGenericPlayerPrivate *>(self)->scheduleFirstVideoFrameReceived();
+}
 } // namespace
 
 namespace firebolt::rialto::server
@@ -363,6 +381,11 @@ void GstGenericPlayer::buildAudioChain(GstElement *source)
         setSync();
     }
 
+    // Wire underflow telemetry on the backend audio sink (the analogue of SetupElement's reactive
+    // wiring on the playbin path). If the sink also carries an underflow signal, AAMP underflow
+    // reporting is preserved; the autoplugged decoder is wired separately once it appears.
+    connectStreamSignals(audioSink, MediaSourceType::AUDIO);
+
     RIALTO_SERVER_LOG_MIL(
         "Explicit audio chain built (appsrc -> decodebin -> audioconvert -> audioresample -> audiosink)");
 }
@@ -442,6 +465,11 @@ void GstGenericPlayer::buildVideoChain(GstElement *source)
         setShowVideoWindow();
     }
 
+    // Wire underflow + first-video-frame telemetry on the backend video sink (the analogue of
+    // SetupElement's reactive wiring on the playbin path). The autoplugged decoder is wired separately
+    // once it appears (via SetupVideoParser).
+    connectStreamSignals(videoSink, MediaSourceType::VIDEO);
+
     RIALTO_SERVER_LOG_MIL("Explicit video chain built (appsrc -> decodebin -> videosink)");
 }
 
@@ -463,6 +491,52 @@ void GstGenericPlayer::videoDecodebinPadAdded(GstElement *decodebin, GstPad *pad
     // video-parser property can now be applied on the worker thread — the explicit-path analogue of
     // the playbin path's reactive SetupElement parser branch.
     self->scheduleSetupVideoParser();
+}
+
+void GstGenericPlayer::connectStreamSignals(GstElement *element, const MediaSourceType &mediaSourceType)
+{
+    // Explicit-construction analogue of the SetupElement underflow/first-frame wiring. On the explicit
+    // path the element's role (sink/decoder) and media type are already known, so the isDecoder/isSink/
+    // isAudio/isVideo probing of the playbin path is unnecessary — we only scan for the signal name and
+    // connect the matching callback. underflow applies to audio and video; first-video-frame to video.
+    if (!element)
+    {
+        return;
+    }
+
+    std::optional<std::string> underflowSignalName = getUnderflowSignalName(*m_glibWrapper, element);
+    if (underflowSignalName)
+    {
+        GCallback callback = mediaSourceType == MediaSourceType::AUDIO ? G_CALLBACK(explicitAudioUnderflowCallback)
+                                                                       : G_CALLBACK(explicitVideoUnderflowCallback);
+        m_glibWrapper->gSignalConnect(element, underflowSignalName.value().c_str(), callback,
+                                      static_cast<IGstGenericPlayerPrivate *>(this));
+    }
+
+    if (mediaSourceType == MediaSourceType::VIDEO)
+    {
+        std::optional<std::string> firstFrameSignalName = getFirstFrameSignalName(*m_glibWrapper, element);
+        if (firstFrameSignalName)
+        {
+            m_glibWrapper->gSignalConnect(element, firstFrameSignalName.value().c_str(),
+                                          G_CALLBACK(explicitFirstVideoFrameCallback),
+                                          static_cast<IGstGenericPlayerPrivate *>(this));
+        }
+    }
+}
+
+void GstGenericPlayer::connectDecoderSignals(const MediaSourceType &mediaSourceType)
+{
+    // The explicit chain's decodebin has autoplugged the decoder; wire its underflow/first-frame
+    // telemetry now (the sink was wired earlier in buildAudioChain/buildVideoChain). Called from the
+    // SetupAudioDecoder/SetupVideoParser tasks on the worker thread, once the decoder is reachable.
+    GstElement *decoder = getDecoder(mediaSourceType);
+    if (!decoder)
+    {
+        return;
+    }
+    connectStreamSignals(decoder, mediaSourceType);
+    m_gstWrapper->gstObjectUnref(decoder);
 }
 
 void GstGenericPlayer::initMsePipelinePlaybin()

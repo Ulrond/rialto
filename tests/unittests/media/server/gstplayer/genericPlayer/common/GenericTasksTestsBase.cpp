@@ -3601,6 +3601,7 @@ void GenericTasksTestsBase::shouldSetupAudioDecoder()
     EXPECT_CALL(testContext->m_gstPlayer, setStreamSyncMode(MediaSourceType::AUDIO)).WillOnce(Return(true));
     EXPECT_CALL(testContext->m_gstPlayer, setBufferingLimit()).WillOnce(Return(true));
     EXPECT_CALL(testContext->m_gstPlayer, setEnableRateCorrection()).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, connectDecoderSignals(MediaSourceType::AUDIO));
 }
 
 void GenericTasksTestsBase::triggerSetupAudioDecoder()
@@ -3619,6 +3620,7 @@ void GenericTasksTestsBase::triggerSetupAudioDecoderNoPipeline()
 void GenericTasksTestsBase::shouldSetupVideoParser()
 {
     EXPECT_CALL(testContext->m_gstPlayer, setStreamSyncMode(MediaSourceType::VIDEO)).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, connectDecoderSignals(MediaSourceType::VIDEO));
 }
 
 void GenericTasksTestsBase::triggerSetupVideoParser()

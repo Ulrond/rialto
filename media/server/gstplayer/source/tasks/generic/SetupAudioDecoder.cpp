@@ -49,5 +49,8 @@ void SetupAudioDecoder::execute() const
     m_player.setStreamSyncMode(MediaSourceType::AUDIO);
     m_player.setBufferingLimit();
     m_player.setEnableRateCorrection();
+
+    // Wire underflow telemetry on the autoplugged audio decoder (the sink was wired in buildAudioChain).
+    m_player.connectDecoderSignals(MediaSourceType::AUDIO);
 }
 } // namespace firebolt::rialto::server::tasks::generic

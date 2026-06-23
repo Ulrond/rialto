@@ -46,5 +46,9 @@ void SetupVideoParser::execute() const
     // video-parser property can now be applied. The setter is guarded by its own pending state and
     // reaches the parser inside decodebin via getParser(VIDEO).
     m_player.setStreamSyncMode(MediaSourceType::VIDEO);
+
+    // Wire underflow + first-video-frame telemetry on the autoplugged video decoder (the sink was
+    // wired in buildVideoChain).
+    m_player.connectDecoderSignals(MediaSourceType::VIDEO);
 }
 } // namespace firebolt::rialto::server::tasks::generic

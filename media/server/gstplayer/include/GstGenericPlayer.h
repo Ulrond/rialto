@@ -168,6 +168,7 @@ private:
     bool setRenderFrame() override;
     bool setBufferingLimit() override;
     bool setEnableRateCorrection() override;
+    void connectDecoderSignals(const MediaSourceType &mediaSourceType) override;
     bool setUseBuffering() override;
     void notifyNeedMediaData(const MediaSourceType mediaSource) override;
     GstBuffer *createBuffer(const IMediaPipeline::MediaSegment &mediaSegment) const override;
@@ -293,6 +294,16 @@ private:
      *        pending video-parser property is applied on the worker thread.
      */
     void scheduleSetupVideoParser();
+
+    /**
+     * @brief Connects the underflow (and, for video, first-video-frame) telemetry callbacks on an
+     *        explicit-construction element whose role and media type are already known. The
+     *        explicit-path analogue of the SetupElement reactive wiring.
+     *
+     * @param[in] element         : The sink or decoder to wire.
+     * @param[in] mediaSourceType : AUDIO or VIDEO.
+     */
+    void connectStreamSignals(GstElement *element, const MediaSourceType &mediaSourceType);
 
     /**
      * @brief Creates a Westeros sink and sets the res-usage flag for a secondary video.

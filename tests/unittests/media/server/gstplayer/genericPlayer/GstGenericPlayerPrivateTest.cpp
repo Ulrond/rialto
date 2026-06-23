@@ -114,6 +114,25 @@ protected:
     GParamSpec m_rectangleSpec{};
     GParamSpec m_showVideoWindowSpec{};
     GstEvent m_event{};
+    guint m_signalIds{};
+
+    // Expectations for the explicit-path telemetry scan on an element that exposes no underflow /
+    // first-frame signal (the autoaudiosink/autovideosink reference case): getUnderflowSignalName (and,
+    // for video, getFirstFrameSignalName) lists the element's signals, finds none, and connects nothing.
+    void expectNoStreamSignals(GstElement *element, bool isVideo)
+    {
+        const int kScans = isVideo ? 2 : 1; // underflow always; first-video-frame for video too
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(element)).Times(kScans).WillRepeatedly(Return(G_TYPE_PARAM));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+            .Times(kScans)
+            .WillRepeatedly(Invoke(
+                [this](GType, guint *nIds)
+                {
+                    *nIds = 0;
+                    return &m_signalIds;
+                }));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_signalIds)).Times(kScans);
+    }
 
     GstGenericPlayerPrivateTest()
     {
@@ -2444,6 +2463,9 @@ TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitAudioChain)
     EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&audioSink)).WillOnce(Return(&audioSink));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&audioSink));   // released by termPipeline at teardown
 
+    // Underflow telemetry is scanned on the backend sink (none on the reference autoaudiosink).
+    expectNoStreamSignals(&audioSink, false);
+
     m_sut->buildAudioChain(&appSrc);
 }
 
@@ -2485,6 +2507,9 @@ TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitVideoChain)
 
     EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&videoSink)).WillOnce(Return(&videoSink));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&videoSink));   // released by termPipeline at teardown
+
+    // Underflow + first-video-frame telemetry is scanned on the backend sink (none on autovideosink).
+    expectNoStreamSignals(&videoSink, true);
 
     m_sut->buildVideoChain(&appSrc);
 }
@@ -2539,6 +2564,9 @@ TEST_F(GstGenericPlayerPrivateTest, shouldBuildExplicitVideoChainAppliesPendingV
         .WillOnce(Return(&m_showVideoWindowSpec));
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&videoSink, StrEq("show-video-window")));
 
+    // Underflow + first-video-frame telemetry is scanned on the backend sink (none on autovideosink).
+    expectNoStreamSignals(&videoSink, true);
+
     m_sut->buildVideoChain(&appSrc);
 }
 
@@ -2556,4 +2584,82 @@ TEST_F(GstGenericPlayerPrivateTest, shouldGetExplicitVideoSink)
     EXPECT_EQ(&videoSink, m_sut->getSink(firebolt::rialto::MediaSourceType::VIDEO));
 
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&videoSink));   // released by termPipeline at teardown
+}
+
+// Stage 5a: connectDecoderSignals wires AAMP underflow / first-video-frame telemetry on the
+// autoplugged decoder once decodebin exposes it (the sink is wired during chain construction). This is
+// the explicit-path analogue of the playbin path's reactive SetupElement signal wiring.
+TEST_F(GstGenericPlayerPrivateTest, shouldConnectAudioDecoderUnderflowSignal)
+{
+    expectGetDecoder(m_realElement); // audio decoder, ref'd by getDecoder
+
+    EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_realElement)).WillOnce(Return(G_TYPE_PARAM));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+        .WillOnce(Invoke(
+            [this](GType, guint *nIds)
+            {
+                *nIds = 1;
+                return &m_signalIds;
+            }));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalQuery(_, _))
+        .WillOnce(Invoke([](guint, GSignalQuery *query) { query->signal_name = "buffer-underflow-callback"; }));
+    EXPECT_CALL(*m_glibWrapperMock, gFree(&m_signalIds));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_realElement, StrEq("buffer-underflow-callback"), _, _))
+        .WillOnce(Return(1));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)); // getDecoder ref released
+
+    m_sut->connectDecoderSignals(firebolt::rialto::MediaSourceType::AUDIO);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldConnectVideoDecoderUnderflowAndFirstFrameSignals)
+{
+    // getDecoder(VIDEO) — like expectGetDecoder but keyed on the video factory type.
+    EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline))).WillOnce(Return(&m_it));
+    EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).WillOnce(Return(GST_ITERATOR_OK));
+    EXPECT_CALL(*m_glibWrapperMock, gValueGetObject(_)).WillOnce(Return(m_realElement));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(m_realElement)).WillOnce(Return(m_factory));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListIsType(m_factory, (GST_ELEMENT_FACTORY_TYPE_DECODER |
+                                                                           GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO)))
+        .WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_realElement)).WillOnce(Return(m_realElement));
+    EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_));
+    EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it));
+
+    // Two scans on the decoder: underflow then first-video-frame, both present.
+    EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_realElement)).Times(2).WillRepeatedly(Return(G_TYPE_PARAM));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+        .Times(2)
+        .WillRepeatedly(Invoke(
+            [this](GType, guint *nIds)
+            {
+                *nIds = 1;
+                return &m_signalIds;
+            }));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalQuery(_, _))
+        .WillOnce(Invoke([](guint, GSignalQuery *query) { query->signal_name = "buffer-underflow-callback"; }))
+        .WillOnce(Invoke([](guint, GSignalQuery *query) { query->signal_name = "first-video-frame-callback"; }));
+    EXPECT_CALL(*m_glibWrapperMock, gFree(&m_signalIds)).Times(2);
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_realElement, StrEq("buffer-underflow-callback"), _, _))
+        .WillOnce(Return(1));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_realElement, StrEq("first-video-frame-callback"), _, _))
+        .WillOnce(Return(1));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)); // getDecoder ref released
+
+    m_sut->connectDecoderSignals(firebolt::rialto::MediaSourceType::VIDEO);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldConnectNoDecoderSignalsWhenDecoderHasNoSignals)
+{
+    expectGetDecoder(m_realElement);
+    // audio: underflow scan only, none found
+    expectNoStreamSignals(m_realElement, false);
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)); // getDecoder ref released
+
+    m_sut->connectDecoderSignals(firebolt::rialto::MediaSourceType::AUDIO);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldConnectNoDecoderSignalsWhenNoDecoder)
+{
+    expectNoDecoder(); // getDecoder returns null -> nothing to wire, no unref
+    m_sut->connectDecoderSignals(firebolt::rialto::MediaSourceType::AUDIO);
 }

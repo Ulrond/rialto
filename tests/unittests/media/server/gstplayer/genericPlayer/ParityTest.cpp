@@ -85,10 +85,28 @@ protected:
     GstElement m_textTrackSink{};
     GstCaps m_subtitleCaps{};
     GParamSpec m_textSinkSpec{};
+    guint m_signalIds{};
 
     bool isExplicit() const { return GetParam() == ConstructionMode::Explicit; }
 
     void TearDown() override { unsetenv("RIALTO_EXPLICIT_PIPELINE"); }
+
+    // The explicit chain builders scan the backend sink for underflow / first-frame telemetry signals;
+    // the reference autoaudiosink/autovideosink expose none, so nothing is connected.
+    void expectNoSinkSignals(GstElement *sink, bool isVideo)
+    {
+        const int kScans = isVideo ? 2 : 1; // underflow always; first-video-frame for video too
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(sink)).Times(kScans).WillRepeatedly(Return(G_TYPE_PARAM));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+            .Times(kScans)
+            .WillRepeatedly(Invoke(
+                [this](GType, guint *nIds)
+                {
+                    *nIds = 0;
+                    return &m_signalIds;
+                }));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_signalIds)).Times(kScans);
+    }
 
     // Builds the player through the construction path under test. Construction and teardown keep the
     // mocked task factory (so the shared helpers apply unchanged); the behavioural cases below make the
@@ -166,6 +184,7 @@ protected:
             EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
             EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_audioSink)).WillOnce(Return(&m_audioSink));
             EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_audioSink)); // released by termPipeline at destroy
+            expectNoSinkSignals(&m_audioSink, false);
         }
     }
 
@@ -244,6 +263,7 @@ protected:
             EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_videoDecodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
             EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_videoSink)).WillOnce(Return(&m_videoSink));
             EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_videoSink)); // released by termPipeline at destroy
+            expectNoSinkSignals(&m_videoSink, true);
         }
     }
 
