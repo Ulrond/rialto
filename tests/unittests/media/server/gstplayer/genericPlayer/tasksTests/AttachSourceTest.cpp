@@ -30,24 +30,6 @@ TEST_F(AttachSourceTest, shouldAttachAudioSource)
     checkAudioSourceAttached();
 }
 
-TEST_F(AttachSourceTest, shouldBuildExplicitAudioChainWhenExplicitConstruction)
-{
-    setContextExplicitConstruction();
-    shouldAttachAudioSource();
-    shouldBuildExplicitAudioChainOnAttach();
-    triggerAttachAudioSource();
-    checkAudioSourceAttached();
-}
-
-TEST_F(AttachSourceTest, shouldBuildExplicitVideoChainWhenExplicitConstruction)
-{
-    setContextExplicitConstruction();
-    shouldAttachVideoSource("video/x-h264", "au", "avc");
-    shouldBuildExplicitVideoChainOnAttach();
-    triggerAttachVideoSource("video/h264", firebolt::rialto::SegmentAlignment::AU, firebolt::rialto::StreamFormat::AVC);
-    checkVideoSourceAttached();
-}
-
 TEST_F(AttachSourceTest, shouldAttachAudioSourceWithChannelsAndRateAndDrm)
 {
     shouldAttachAudioSourceWithChannelsAndRate();
@@ -149,14 +131,6 @@ TEST_F(AttachSourceTest, shouldAttachVideoSourceAuHev)
 TEST_F(AttachSourceTest, shouldAttachSubtitleSource)
 {
     shouldAttachSubtitleSource();
-    triggerAttachSubtitleSource();
-    checkSubtitleSourceAttached();
-}
-
-TEST_F(AttachSourceTest, shouldBuildExplicitSubtitleChainWhenExplicitConstruction)
-{
-    setContextExplicitConstruction();
-    shouldBuildExplicitSubtitleChainOnAttach();
     triggerAttachSubtitleSource();
     checkSubtitleSourceAttached();
 }

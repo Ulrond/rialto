@@ -71,7 +71,6 @@ protected:
     void setContextAudioBuffer();
     void setContextVideoBuffer();
     void setContextPlaybackRate();
-    void setContextSourceNull();
     void setContextStreamInfoEmpty();
     void setContextSetupSourceFinished();
 
@@ -163,9 +162,6 @@ protected:
     void shouldAttachAudioSource();
     void triggerAttachAudioSource();
     void checkAudioSourceAttached();
-    void setContextExplicitConstruction();
-    void shouldBuildExplicitAudioChainOnAttach();
-    void shouldBuildExplicitVideoChainOnAttach();
     void shouldAttachAudioSourceWithChannelsAndRate();
     void triggerAttachAudioSourceWithChannelsAndRateAndDrm();
     void checkAudioSourceAttachedWithDrm();
@@ -185,7 +181,6 @@ protected:
     void triggerAttachUnknownSource();
     void checkVideoSourceAttached();
     void shouldAttachSubtitleSource();
-    void shouldBuildExplicitSubtitleChainOnAttach();
     void checkSubtitleSourceAttached();
     void triggerAttachSubtitleSource();
     void shouldAttachVideoSourceWithStringCodecData();
@@ -358,22 +353,14 @@ protected:
     void shouldFailToReportPosition();
 
     // FinishSetupSource test methods
-    void shouldFinishSetupSource();
     void shouldFinishSetupSourceExplicit();
     void triggerFinishSetupSource();
     void shouldScheduleNeedMediaDataAudio();
     void triggerAudioCallbackNeedData();
-    void shouldScheduleNeedMediaDataVideo();
-    void triggerVideoCallbackNeedData();
     void shouldScheduleEnoughDataAudio();
     void triggerAudioCallbackEnoughData();
-    void shouldScheduleEnoughDataVideo();
-    void triggerVideoCallbackEnoughData();
     void triggerAudioCallbackSeekData();
-    void triggerVideoCallbackSeekData();
-    void checkSourcesAttached();
     void checkSetupSourceFinished();
-    void checkSetupSourceUnfinished();
 
     // NeedData test methods
     void triggerNeedDataAudio();

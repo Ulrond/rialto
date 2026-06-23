@@ -35,28 +35,6 @@ void GstGenericPlayerTestCommon::gstPlayerWillBeCreated()
 {
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
     initFactories();
-    expectMakePlaybin();
-    expectSetFlags();
-    expectSetSignalCallbacks();
-    expectSetUri();
-    expectCheckPlaySink();
-    expectSetMessageCallback();
-
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&m_pipeline, GST_STATE_READY))
-        .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-    EXPECT_CALL(*m_gstSrcMock, initSrc());
-    EXPECT_CALL(*m_gstProfilerFactoryMock, createGstProfiler(&m_pipeline, _, _))
-        .WillOnce(Return(ByMove(std::move(m_gstProfiler))));
-    EXPECT_CALL(m_workerThreadFactoryMock, createWorkerThread()).WillOnce(Return(ByMove(std::move(workerThread))));
-    EXPECT_CALL(*m_gstProtectionMetadataFactoryMock, createProtectionMetadataWrapper(_))
-        .WillOnce(Return(ByMove(std::move(m_gstProtectionMetadataWrapper))));
-    executeTaskWhenEnqueued();
-}
-
-void GstGenericPlayerTestCommon::gstPlayerWillBeCreatedExplicit()
-{
-    EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
-    initFactories();
     expectMakePipeline();
     expectSetMessageCallback();
 
@@ -105,27 +83,6 @@ void GstGenericPlayerTestCommon::executeTaskWhenEnqueued()
         .WillRepeatedly(Invoke([](std::unique_ptr<IPlayerTask> &&task) { task->execute(); }));
 }
 
-void GstGenericPlayerTestCommon::triggerSetupSource(GstElement *element)
-{
-    ASSERT_TRUE(m_setupSourceFunc);
-    reinterpret_cast<void (*)(GstElement *, GstElement *, GstGenericPlayer *)>(
-        m_setupSourceFunc)(&m_pipeline, element, reinterpret_cast<GstGenericPlayer *>(m_setupSourceUserData));
-}
-
-void GstGenericPlayerTestCommon::triggerSetupElement(GstElement *element)
-{
-    ASSERT_TRUE(m_setupElementFunc);
-    reinterpret_cast<void (*)(GstElement *, GstElement *, GstGenericPlayer *)>(
-        m_setupElementFunc)(&m_pipeline, element, reinterpret_cast<GstGenericPlayer *>(m_setupElementUserData));
-}
-
-void GstGenericPlayerTestCommon::triggerDeepElementAdded(GstElement *element)
-{
-    ASSERT_TRUE(m_deepElementAddedFunc);
-    reinterpret_cast<void (*)(GstBin *pipeline, GstBin *bin, GstElement *element, GstGenericPlayer *self)>(
-        m_deepElementAddedFunc)(&m_bin, &m_bin, element, reinterpret_cast<GstGenericPlayer *>(m_setupElementUserData));
-}
-
 void GstGenericPlayerTestCommon::setPipelineState(const GstState &state)
 {
     GST_STATE(&m_pipeline) = state;
@@ -136,98 +93,9 @@ void GstGenericPlayerTestCommon::initFactories()
     EXPECT_CALL(*m_gstSrcFactoryMock, getGstSrc()).WillOnce(Return(m_gstSrcMock));
 }
 
-void GstGenericPlayerTestCommon::expectMakePlaybin()
-{
-    // Explicit construction is the production default; opt out to the legacy playbin path under test.
-    // Set on the playbin construction expectation so every playbin test selects it deterministically,
-    // whether it goes through gstPlayerWillBeCreated or arranges expectMakePlaybin directly.
-    setenv("RIALTO_EXPLICIT_PIPELINE", "0", 1);
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("playbin"), _)).WillOnce(Return(&m_pipeline));
-}
-
 void GstGenericPlayerTestCommon::expectMakePipeline()
 {
-    // Assert the explicit (default) path explicitly so construction is deterministic regardless of any
-    // opt-out left set by a prior playbin test in the same binary.
-    setenv("RIALTO_EXPLICIT_PIPELINE", "1", 1);
     EXPECT_CALL(*m_gstWrapperMock, gstPipelineNew(StrEq("media_pipeline"))).WillOnce(Return(&m_pipeline));
-}
-
-void GstGenericPlayerTestCommon::expectSetFlags()
-{
-    EXPECT_CALL(*m_glibWrapperMock, gTypeFromName(StrEq("GstPlayFlags"))).Times(4).WillRepeatedly(Return(m_gstPlayFlagsType));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeClassRef(m_gstPlayFlagsType)).Times(4).WillRepeatedly(Return(&m_flagsClass));
-
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("audio"))).WillOnce(Return(&m_audioFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("video"))).WillOnce(Return(&m_videoFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("text"))).WillOnce(Return(&m_subtitleFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("native-video")))
-        .WillOnce(Return(&m_nativeVideoFlag));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryFind(StrEq("brcmaudiosink"))).WillOnce(Return(nullptr));
-
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_pipeline, StrEq("flags")));
-}
-
-void GstGenericPlayerTestCommon::expectSetFlagsWithNativeAudio()
-{
-    EXPECT_CALL(*m_glibWrapperMock, gTypeFromName(StrEq("GstPlayFlags"))).Times(5).WillRepeatedly(Return(m_gstPlayFlagsType));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeClassRef(m_gstPlayFlagsType)).Times(5).WillRepeatedly(Return(&m_flagsClass));
-
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("audio"))).WillOnce(Return(&m_audioFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("video"))).WillOnce(Return(&m_videoFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("text"))).WillOnce(Return(&m_subtitleFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("native-video")))
-        .WillOnce(Return(&m_nativeVideoFlag));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryFind(StrEq("brcmaudiosink")))
-        .WillOnce(Return(reinterpret_cast<GstElementFactory *>(&m_sinkFactory)));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(reinterpret_cast<GstElementFactory *>(&m_sinkFactory)));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("native-audio")))
-        .WillOnce(Return(&m_nativeAudioFlag));
-
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_pipeline, StrEq("flags")));
-}
-
-void GstGenericPlayerTestCommon::expectSetSignalCallbacks()
-{
-    EXPECT_CALL(*m_glibWrapperMock,
-                gSignalConnect(&m_pipeline, StrEq("source-setup"), NotNullMatcher(), NotNullMatcher()))
-        .WillOnce(Invoke(
-            [this](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
-            {
-                m_setupSourceFunc = c_handler;
-                m_setupSourceUserData = data;
-                return m_setupSourceSignalId;
-            }));
-    EXPECT_CALL(*m_glibWrapperMock,
-                gSignalConnect(&m_pipeline, StrEq("element-setup"), NotNullMatcher(), NotNullMatcher()))
-        .WillOnce(Invoke(
-            [this](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
-            {
-                m_setupElementFunc = c_handler;
-                m_setupElementUserData = data;
-                return m_setupElementSignalId;
-            }));
-    EXPECT_CALL(*m_glibWrapperMock,
-                gSignalConnect(&m_pipeline, StrEq("deep-element-added"), NotNullMatcher(), NotNullMatcher()))
-        .WillOnce(Invoke(
-            [this](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
-            {
-                m_deepElementAddedFunc = c_handler;
-                m_deepElementAddedUserData = data;
-                return m_deepElementAddedSignalId;
-            }));
-}
-
-void GstGenericPlayerTestCommon::expectSetUri()
-{
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_pipeline, StrEq("uri")));
-}
-
-void GstGenericPlayerTestCommon::expectCheckPlaySink()
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstBinGetByName(GST_BIN(&m_pipeline), StrEq("playsink"))).WillOnce(Return(&m_playsink));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_playsink, StrEq("send-event-mode")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_playsink));
 }
 
 void GstGenericPlayerTestCommon::expectSetMessageCallback()

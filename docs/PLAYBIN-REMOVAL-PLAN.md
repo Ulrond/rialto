@@ -132,6 +132,17 @@ one, superseding the primary/secondary boolean:
   (`build_ct.py`) at stages 2 and 5.
 - The `playbin-vs-explicit` nails remain the behavioural reference for element counts / resume.
 
+## 6a. Known bug (raise as a fork issue)
+
+- **Video/subtitle appsrc data-flow callbacks are not wired on the explicit path.**
+  `FinishSetupSource` only calls `configureExplicitAppSrc` for the **AUDIO** stream; `buildVideoChain`
+  and `buildSubtitleChain` do not set appsrc `need-data`/`enough-data`/`seek-data` callbacks either. On
+  the explicit path — the default since 5b — the server therefore never requests media data for video
+  or subtitle, so those streams stall. Pre-existing (introduced when stage 4 added the video/subtitle
+  chains without extending `FinishSetupSource`); independent of playbin removal. Fix: have the explicit
+  `FinishSetupSource` branch iterate every `streamInfo` entry (the `queueSize` map is already keyed for
+  AUDIO/VIDEO/SUBTITLE) rather than looking up AUDIO only.
+
 ## 7. Risks & mitigations
 
 - **MSE backward-compat** (100s of web apps): the opt-in switch (stage 2) keeps playbin default

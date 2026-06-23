@@ -246,38 +246,6 @@ TEST_F(GstGenericPlayerTest, shouldSetEos)
     m_sut->setEos(type);
 }
 
-TEST_F(GstGenericPlayerTest, shouldSetupSource)
-{
-    GstElement source{};
-    std::unique_ptr<IPlayerTask> task{std::make_unique<StrictMock<PlayerTaskMock>>()};
-    EXPECT_CALL(dynamic_cast<StrictMock<PlayerTaskMock> &>(*task), execute());
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&source));
-    EXPECT_CALL(m_taskFactoryMock, createSetupSource(_, _, &source)).WillOnce(Return(ByMove(std::move(task))));
-
-    triggerSetupSource(&source);
-}
-
-TEST_F(GstGenericPlayerTest, shouldSetupElement)
-{
-    GstElement element{};
-    std::unique_ptr<IPlayerTask> task{std::make_unique<StrictMock<PlayerTaskMock>>()};
-    EXPECT_CALL(dynamic_cast<StrictMock<PlayerTaskMock> &>(*task), execute());
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&element));
-    EXPECT_CALL(m_taskFactoryMock, createSetupElement(_, _, &element)).WillOnce(Return(ByMove(std::move(task))));
-
-    triggerSetupElement(&element);
-}
-
-TEST_F(GstGenericPlayerTest, shouldAddDeepElement)
-{
-    GstElement element{};
-    std::unique_ptr<IPlayerTask> task{std::make_unique<StrictMock<PlayerTaskMock>>()};
-    EXPECT_CALL(dynamic_cast<StrictMock<PlayerTaskMock> &>(*task), execute());
-    EXPECT_CALL(m_taskFactoryMock, createDeepElementAdded(_, _, _, _, &element)).WillOnce(Return(ByMove(std::move(task))));
-
-    triggerDeepElementAdded(&element);
-}
-
 TEST_F(GstGenericPlayerTest, shouldReturnInvalidPositionWhenPipelineIsNull)
 {
     GstElement *pipeline{};

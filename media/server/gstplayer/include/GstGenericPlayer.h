@@ -208,58 +208,10 @@ private:
 
 private:
     /**
-     * @brief Initialises the player pipeline for MSE playback, dispatching to the playbin or the
-     *        explicit-construction path (transitional RIALTO_EXPLICIT_PIPELINE opt-in switch).
+     * @brief Initialises the MSE pipeline (plain pipeline container; per-stream chains are built
+     *        explicitly in AttachSource). No playbin autoplugging.
      */
     void initMsePipeline();
-
-    /**
-     * @brief Initialises the MSE pipeline explicitly (plain pipeline container; per-stream chains
-     *        are built in AttachSource). No playbin autoplugging.
-     */
-    void initMsePipelineExplicit();
-
-    /**
-     * @brief Initialises the MSE pipeline via GStreamer playbin (legacy autoplugging path).
-     */
-    void initMsePipelinePlaybin();
-
-    /**
-     * @brief Gets the flag from gstreamer.
-     *
-     * @param[in] nick : The name of the flag in gstreamer.
-     *
-     * @retval Value of the flag or 0 on error.
-     */
-    unsigned getGstPlayFlag(const char *nick);
-
-    /**
-     * @brief Callback on source-setup. Called by the Gstreamer thread
-     *
-     * @param[in] pipeline  : The pipeline the signal was fired from.
-     * @param[in] source    : The source to setup.
-     * @param[in] self      : Reference to the calling object.
-     */
-    static void setupSource(GstElement *pipeline, GstElement *source, GstGenericPlayer *self);
-
-    /**
-     * @brief Callback on element-setup. Called by the Gstreamer thread
-     *
-     * @param[in] pipeline  : The pipeline the signal was fired from.
-     * @param[in] element   : an element that was added to the playbin hierarchy
-     * @param[in] self      : Reference to the calling object.
-     */
-    static void setupElement(GstElement *pipeline, GstElement *element, GstGenericPlayer *self);
-
-    /**
-     * @brief Callback on element-setup. Called by the Gstreamer thread
-     *
-     * @param[in] pipeline  : The pipeline the signal was fired from.
-     * @param[in] bin       : the GstBin the element was added to
-     * @param[in] element   : an element that was added to the playbin hierarchy
-     * @param[in] self      : Reference to the calling object.
-     */
-    static void deepElementAdded(GstBin *pipeline, GstBin *bin, GstElement *element, GstGenericPlayer *self);
 
     /**
      * @brief Callback on the explicit audio chain's decodebin pad-added. Called by the Gstreamer
@@ -306,20 +258,6 @@ private:
     void connectStreamSignals(GstElement *element, const MediaSourceType &mediaSourceType);
 
     /**
-     * @brief Creates a Westeros sink and sets the res-usage flag for a secondary video.
-     *
-     * @retval true on success.
-     */
-    bool setWesterossinkSecondaryVideo();
-
-    /**
-     * @brief Creates an "erm" gstreamer context in the pipeline
-     *
-     * @retval true on success.
-     */
-    bool setErmContext();
-
-    /**
      * @brief Terminates the player pipeline.
      */
     void termPipeline();
@@ -328,11 +266,6 @@ private:
      * @brief Shutdown and destroys the worker thread.
      */
     void resetWorkerThread();
-
-    /**
-     * @brief Whether native audio should be enabled on the current platform.
-     */
-    bool shouldEnableNativeAudio();
 
     /**
      * @brief Sets codec_data in GstCaps if available
@@ -479,13 +412,6 @@ private:
      * @param[in] source : the media source
      */
     void pushAdditionalSegmentIfRequired(GstElement *source);
-
-    /**
-     * @brief Sets the audio and video flags on the pipeline based on the input.
-     *
-     * @param[in] enableAudio : Whether to enable audio flags.
-     */
-    void setPlaybinFlags(bool enableAudio = true);
 
 private:
     /**

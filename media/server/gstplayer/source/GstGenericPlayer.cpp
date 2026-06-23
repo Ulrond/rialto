@@ -227,20 +227,9 @@ GstGenericPlayer::GstGenericPlayer(
     if ((kMinPrimaryVideoWidth > videoRequirements.maxWidth) || (kMinPrimaryVideoHeight > videoRequirements.maxHeight))
     {
         RIALTO_SERVER_LOG_MIL("Secondary video playback selected");
-        m_context.videoId = 1; // secondary/PiP plane (explicit path passes this to createVideoSink)
-        // The playbin path binds the vendor sink to the secondary plane here; the explicit path does it
-        // via the resource id passed to IPlatformBackend::createVideoSink in buildVideoChain.
-        if (!m_context.isExplicitConstruction)
-        {
-            bool westerossinkSecondaryVideoResult = setWesterossinkSecondaryVideo();
-            bool ermContextResult = setErmContext();
-            if (!westerossinkSecondaryVideoResult && !ermContextResult)
-            {
-                resetWorkerThread();
-                termPipeline();
-                throw std::runtime_error("Could not set secondary video");
-            }
-        }
+        // Secondary/PiP plane: the resource id is passed to IPlatformBackend::createVideoSink in
+        // buildVideoChain, which binds the vendor sink to the plane.
+        m_context.videoId = 1;
     }
     else
     {
@@ -287,21 +276,6 @@ GstGenericPlayer::~GstGenericPlayer()
 
 void GstGenericPlayer::initMsePipeline()
 {
-    // Explicit construction is the default (playbin removal). The transitional opt-out switch
-    // RIALTO_EXPLICIT_PIPELINE=0 selects the legacy playbin path as a per-platform fallback while it is
-    // still being proven; the switch (and the playbin path) is removed once explicit construction is
-    // proven on every platform.
-    const char *explicitMode = std::getenv("RIALTO_EXPLICIT_PIPELINE");
-    if (explicitMode && explicitMode[0] == '0')
-    {
-        initMsePipelinePlaybin();
-        return;
-    }
-    initMsePipelineExplicit();
-}
-
-void GstGenericPlayer::initMsePipelineExplicit()
-{
     // Explicit construction: a plain pipeline container. The per-stream chains
     // (appsrc -> parse -> decoder -> sink-from-backend) are built in AttachSource; nothing is
     // autoplugged, so playbin's signals / play-flags / playsink / uri are all absent.
@@ -310,7 +284,6 @@ void GstGenericPlayer::initMsePipelineExplicit()
     {
         throw std::runtime_error("Failed to create the pipeline");
     }
-    m_context.isExplicitConstruction = true;
 
     m_context.gstProfiler = m_gstProfilerFactory->createGstProfiler(m_context.pipeline, m_gstWrapper, m_glibWrapper);
     if (!m_context.gstProfiler)
@@ -553,49 +526,6 @@ void GstGenericPlayer::connectDecoderSignals(const MediaSourceType &mediaSourceT
     m_gstWrapper->gstObjectUnref(decoder);
 }
 
-void GstGenericPlayer::initMsePipelinePlaybin()
-{
-    // Make playbin
-    m_context.pipeline = m_gstWrapper->gstElementFactoryMake("playbin", "media_pipeline");
-    // Set pipeline flags
-    setPlaybinFlags(true);
-
-    m_context.gstProfiler = m_gstProfilerFactory->createGstProfiler(m_context.pipeline, m_gstWrapper, m_glibWrapper);
-    if (!m_context.gstProfiler)
-    {
-        throw std::runtime_error("Cannot create GstProfiler");
-    }
-
-    // Set callbacks
-    m_glibWrapper->gSignalConnect(m_context.pipeline, "source-setup", G_CALLBACK(&GstGenericPlayer::setupSource), this);
-    m_glibWrapper->gSignalConnect(m_context.pipeline, "element-setup", G_CALLBACK(&GstGenericPlayer::setupElement), this);
-    m_glibWrapper->gSignalConnect(m_context.pipeline, "deep-element-added",
-                                  G_CALLBACK(&GstGenericPlayer::deepElementAdded), this);
-
-    // Set uri
-    m_glibWrapper->gObjectSet(m_context.pipeline, "uri", "rialto://", nullptr);
-
-    // Check playsink
-    GstElement *playsink = (m_gstWrapper->gstBinGetByName(GST_BIN(m_context.pipeline), "playsink"));
-    if (playsink)
-    {
-        m_glibWrapper->gObjectSet(G_OBJECT(playsink), "send-event-mode", 0, nullptr);
-        m_gstWrapper->gstObjectUnref(playsink);
-    }
-    else
-    {
-        GST_WARNING("No playsink ?!?!?");
-    }
-    if (GST_STATE_CHANGE_FAILURE == m_gstWrapper->gstElementSetState(m_context.pipeline, GST_STATE_READY))
-    {
-        GST_WARNING("Failed to set pipeline to READY state");
-    }
-    RIALTO_SERVER_LOG_MIL("New RialtoServer's pipeline created");
-    auto recordId = m_context.gstProfiler->createRecord("Pipeline Created");
-    if (recordId)
-        m_context.gstProfiler->logRecord(recordId.value());
-}
-
 void GstGenericPlayer::resetWorkerThread()
 {
     // Shutdown task thread
@@ -664,43 +594,6 @@ void GstGenericPlayer::termPipeline()
     m_gstWrapper->gstObjectUnref(m_context.pipeline);
 
     RIALTO_SERVER_LOG_MIL("RialtoServer's pipeline terminated");
-}
-
-unsigned GstGenericPlayer::getGstPlayFlag(const char *nick)
-{
-    GFlagsClass *flagsClass =
-        static_cast<GFlagsClass *>(m_glibWrapper->gTypeClassRef(m_glibWrapper->gTypeFromName("GstPlayFlags")));
-    GFlagsValue *flag = m_glibWrapper->gFlagsGetValueByNick(flagsClass, nick);
-    return flag ? flag->value : 0;
-}
-
-void GstGenericPlayer::setupSource(GstElement *pipeline, GstElement *source, GstGenericPlayer *self)
-{
-    self->m_gstWrapper->gstObjectRef(source);
-    if (self->m_workerThread)
-    {
-        self->m_workerThread->enqueueTask(self->m_taskFactory->createSetupSource(self->m_context, *self, source));
-    }
-}
-
-void GstGenericPlayer::setupElement(GstElement *pipeline, GstElement *element, GstGenericPlayer *self)
-{
-    RIALTO_SERVER_LOG_DEBUG("Element %s added to the pipeline", GST_ELEMENT_NAME(element));
-    self->m_gstWrapper->gstObjectRef(element);
-    if (self->m_workerThread)
-    {
-        self->m_workerThread->enqueueTask(self->m_taskFactory->createSetupElement(self->m_context, *self, element));
-    }
-}
-
-void GstGenericPlayer::deepElementAdded(GstBin *pipeline, GstBin *bin, GstElement *element, GstGenericPlayer *self)
-{
-    RIALTO_SERVER_LOG_DEBUG("Deep element %s added to the pipeline", GST_ELEMENT_NAME(element));
-    if (self->m_workerThread)
-    {
-        self->m_workerThread->enqueueTask(
-            self->m_taskFactory->createDeepElementAdded(self->m_context, *self, pipeline, bin, element));
-    }
 }
 
 void GstGenericPlayer::attachSource(const std::unique_ptr<IMediaPipeline::MediaSource> &attachedSource)
@@ -779,11 +672,11 @@ bool GstGenericPlayer::getDuration(std::int64_t &duration)
 GstElement *GstGenericPlayer::getSink(const MediaSourceType &mediaSourceType) const
 {
     // Explicit construction stores its sinks directly (there is no playbin to read them off).
-    if (m_context.isExplicitConstruction && mediaSourceType == MediaSourceType::AUDIO && m_context.audioSink)
+    if (mediaSourceType == MediaSourceType::AUDIO && m_context.audioSink)
     {
         return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.audioSink)));
     }
-    if (m_context.isExplicitConstruction && mediaSourceType == MediaSourceType::VIDEO && m_context.videoSink)
+    if (mediaSourceType == MediaSourceType::VIDEO && m_context.videoSink)
     {
         return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.videoSink)));
     }
@@ -1985,15 +1878,12 @@ bool GstGenericPlayer::reattachSource(const std::unique_ptr<IMediaPipeline::Medi
         return false;
     }
 
-    if (m_context.isExplicitConstruction)
-    {
-        // No playbin signals populate the playback group on the explicit path; refresh the audio
-        // decoder/parser/typefind from the live decodebin before the codec switch so both the
-        // amlhalasink (haltAudioPlayback/switchAudioCodec/resumeAudioPlayback) and the external
-        // rdk-gstreamer-utils paths operate on current elements. The stable handles (pipeline,
-        // decodebin, sink-as-playsink-bin) were stored at construction in buildAudioChain.
-        updateAudioPlaybackGroupHandles();
-    }
+    // No playbin signals populate the playback group, so refresh the audio decoder/parser/typefind
+    // from the live decodebin before the codec switch so both the amlhalasink
+    // (haltAudioPlayback/switchAudioCodec/resumeAudioPlayback) and the external rdk-gstreamer-utils
+    // paths operate on current elements. The stable handles (pipeline, decodebin, sink-as-playsink-bin)
+    // were stored at construction in buildAudioChain.
+    updateAudioPlaybackGroupHandles();
 
     long long currentDispPts = getPosition(m_context.pipeline); // NOLINT(runtime/int)
     GstCaps *caps{createCapsFromMediaSource(m_gstWrapper, m_glibWrapper, source)};
@@ -2624,70 +2514,6 @@ bool GstGenericPlayer::setUseBuffering()
     return false;
 }
 
-bool GstGenericPlayer::setWesterossinkSecondaryVideo()
-{
-    bool result = false;
-    GstElementFactory *factory = m_gstWrapper->gstElementFactoryFind("westerossink");
-    if (factory)
-    {
-        GstElement *videoSink = m_gstWrapper->gstElementFactoryCreate(factory, nullptr);
-        if (videoSink)
-        {
-            if (m_glibWrapper->gObjectClassFindProperty(G_OBJECT_GET_CLASS(videoSink), "res-usage"))
-            {
-                m_glibWrapper->gObjectSet(videoSink, "res-usage", 0x0u, nullptr);
-                m_glibWrapper->gObjectSet(m_context.pipeline, "video-sink", videoSink, nullptr);
-                result = true;
-            }
-            else
-            {
-                RIALTO_SERVER_LOG_ERROR("Failed to set the westerossink res-usage");
-                m_gstWrapper->gstObjectUnref(GST_OBJECT(videoSink));
-            }
-        }
-        else
-        {
-            RIALTO_SERVER_LOG_ERROR("Failed to create the westerossink");
-        }
-
-        m_gstWrapper->gstObjectUnref(GST_OBJECT(factory));
-    }
-    else
-    {
-        // No westeros sink
-        result = true;
-    }
-
-    return result;
-}
-
-bool GstGenericPlayer::setErmContext()
-{
-    bool result = false;
-    GstContext *context = m_gstWrapper->gstContextNew("erm", false);
-    if (context)
-    {
-        GstStructure *contextStructure = m_gstWrapper->gstContextWritableStructure(context);
-        if (contextStructure)
-        {
-            m_gstWrapper->gstStructureSet(contextStructure, "res-usage", G_TYPE_UINT, 0x0u, nullptr);
-            m_gstWrapper->gstElementSetContext(GST_ELEMENT(m_context.pipeline), context);
-            result = true;
-        }
-        else
-        {
-            RIALTO_SERVER_LOG_ERROR("Failed to create the erm structure");
-        }
-        m_gstWrapper->gstContextUnref(context);
-    }
-    else
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed to create the erm context");
-    }
-
-    return result;
-}
-
 void GstGenericPlayer::startPositionReportingAndCheckAudioUnderflowTimer()
 {
     if (m_positionReportingAndCheckAudioUnderflowTimer && m_positionReportingAndCheckAudioUnderflowTimer->isActive())
@@ -3268,30 +3094,6 @@ GstElement *GstGenericPlayer::getSinkChildIfAutoAudioSink(GstElement *sink) cons
         }
     }
     return sink;
-}
-
-void GstGenericPlayer::setPlaybinFlags(bool enableAudio)
-{
-    unsigned flags = getGstPlayFlag("video") | getGstPlayFlag("native-video") | getGstPlayFlag("text");
-
-    if (enableAudio)
-    {
-        flags |= getGstPlayFlag("audio");
-        flags |= shouldEnableNativeAudio() ? getGstPlayFlag("native-audio") : 0;
-    }
-
-    m_glibWrapper->gObjectSet(m_context.pipeline, "flags", flags, nullptr);
-}
-
-bool GstGenericPlayer::shouldEnableNativeAudio()
-{
-    GstElementFactory *factory = m_gstWrapper->gstElementFactoryFind("brcmaudiosink");
-    if (factory)
-    {
-        m_gstWrapper->gstObjectUnref(GST_OBJECT(factory));
-        return true;
-    }
-    return false;
 }
 
 }; // namespace firebolt::rialto::server

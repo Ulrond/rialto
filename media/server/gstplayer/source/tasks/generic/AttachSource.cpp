@@ -97,18 +97,6 @@ void AttachSource::addSource() const
         RIALTO_SERVER_LOG_MIL("Adding Subtitle appsrc with caps %s", capsStr);
         appSrc = m_gstWrapper->gstElementFactoryMake("appsrc", "subsrc");
         profilerInfo = "subsrc";
-
-        // Playbin path only: assign the text-track sink to playbin's text-sink property. The explicit
-        // path has no playbin (and so no text-sink property) — it builds appsrc -> RialtoTextTrackSink
-        // itself in buildSubtitleChain below.
-        if (!m_context.isExplicitConstruction &&
-            m_glibWrapper->gObjectClassFindProperty(G_OBJECT_GET_CLASS(m_context.pipeline), "text-sink"))
-        {
-            GstElement *elem = m_gstTextTrackSinkFactory->createGstTextTrackSink();
-            m_context.subtitleSink = elem;
-
-            m_glibWrapper->gObjectSet(m_context.pipeline, "text-sink", elem, nullptr);
-        }
     }
     if (appSrc)
     {
@@ -122,18 +110,17 @@ void AttachSource::addSource() const
     m_gstWrapper->gstAppSrcSetCaps(GST_APP_SRC(appSrc), caps);
     m_context.streamInfo.emplace(m_attachedSource->getType(), StreamInfo{appSrc, m_attachedSource->getHasDrm()});
 
-    // Explicit-construction path: Rialto builds the per-stream chain itself rather than relying on
-    // playbin autoplugging. The audio/video chains (appsrc -> decodebin -> ... -> backend sink) are
-    // built here; the subtitle chain follows.
-    if (m_context.isExplicitConstruction && m_attachedSource->getType() == MediaSourceType::AUDIO)
+    // Rialto builds the per-stream chain itself. The audio/video chains
+    // (appsrc -> decodebin -> ... -> backend sink) are built here; the subtitle chain follows.
+    if (m_attachedSource->getType() == MediaSourceType::AUDIO)
     {
         m_player.buildAudioChain(appSrc);
     }
-    else if (m_context.isExplicitConstruction && m_attachedSource->getType() == MediaSourceType::VIDEO)
+    else if (m_attachedSource->getType() == MediaSourceType::VIDEO)
     {
         m_player.buildVideoChain(appSrc);
     }
-    else if (m_context.isExplicitConstruction && m_attachedSource->getType() == MediaSourceType::SUBTITLE)
+    else if (m_attachedSource->getType() == MediaSourceType::SUBTITLE)
     {
         buildSubtitleChain(appSrc);
     }

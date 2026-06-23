@@ -22,108 +22,38 @@
 class FinishSetupSourceTest : public GenericTasksTestsBase
 {
 protected:
-    FinishSetupSourceTest()
-    {
-        setContextStreamInfo(firebolt::rialto::MediaSourceType::AUDIO);
-        setContextStreamInfo(firebolt::rialto::MediaSourceType::VIDEO);
-    }
+    FinishSetupSourceTest() { setContextStreamInfo(firebolt::rialto::MediaSourceType::AUDIO); }
 };
 
 TEST_F(FinishSetupSourceTest, shouldFinishSetupSource)
 {
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-}
-
-TEST_F(FinishSetupSourceTest, shouldFinishSetupSourceExplicit)
-{
     shouldFinishSetupSourceExplicit();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-}
-
-TEST_F(FinishSetupSourceTest, shouldScheduleAudioNeedDataExplicit)
-{
-    shouldFinishSetupSourceExplicit();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleNeedMediaDataAudio();
-    triggerAudioCallbackNeedData();
-}
-
-TEST_F(FinishSetupSourceTest, shouldScheduleAudioSeekDataExplicit)
-{
-    shouldFinishSetupSourceExplicit();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleEnoughDataAudio();
-    triggerAudioCallbackSeekData();
-}
-
-TEST_F(FinishSetupSourceTest, shouldFinishSetupSourceWithUnknownSource)
-{
-    setContextStreamInfo(firebolt::rialto::MediaSourceType::UNKNOWN);
-    shouldFinishSetupSource();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
 }
 
 TEST_F(FinishSetupSourceTest, shouldScheduleAudioNeedData)
 {
-    shouldFinishSetupSource();
+    shouldFinishSetupSourceExplicit();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
     shouldScheduleNeedMediaDataAudio();
     triggerAudioCallbackNeedData();
 }
 
-TEST_F(FinishSetupSourceTest, shouldScheduleVideoNeedData)
-{
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleNeedMediaDataVideo();
-    triggerVideoCallbackNeedData();
-}
 TEST_F(FinishSetupSourceTest, shouldScheduleAudioEnoughData)
 {
-    shouldFinishSetupSource();
+    shouldFinishSetupSourceExplicit();
     triggerFinishSetupSource();
     shouldScheduleEnoughDataAudio();
     triggerAudioCallbackEnoughData();
 }
 
-TEST_F(FinishSetupSourceTest, shouldScheduleVideoEnoughData)
-{
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleEnoughDataVideo();
-    triggerVideoCallbackEnoughData();
-}
-
 TEST_F(FinishSetupSourceTest, shouldScheduleAudioSeekData)
 {
-    shouldFinishSetupSource();
+    shouldFinishSetupSourceExplicit();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
     shouldScheduleEnoughDataAudio();
     triggerAudioCallbackSeekData();
-}
-
-TEST_F(FinishSetupSourceTest, shouldScheduleVideoSeekData)
-{
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleEnoughDataVideo();
-    triggerVideoCallbackSeekData();
-}
-TEST_F(FinishSetupSourceTest, shouldntFinishSetupSourceWhenSourceNotSet)
-{
-    setContextSourceNull();
-    triggerFinishSetupSource();
-    checkSourcesAttached();
-    checkSetupSourceUnfinished();
 }

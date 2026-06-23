@@ -383,11 +383,6 @@ void GenericTasksTestsBase::setContextPlaybackRate()
     testContext->m_context.playbackRate = kRate;
 }
 
-void GenericTasksTestsBase::setContextSourceNull()
-{
-    testContext->m_context.source = nullptr;
-}
-
 void GenericTasksTestsBase::setContextStreamInfoEmpty()
 {
     testContext->m_context.streamInfo.clear();
@@ -1516,21 +1511,6 @@ void GenericTasksTestsBase::checkAudioSourceAttached()
     EXPECT_FALSE(testContext->m_context.streamInfo.at(firebolt::rialto::MediaSourceType::AUDIO).hasDrm);
 }
 
-void GenericTasksTestsBase::setContextExplicitConstruction()
-{
-    testContext->m_context.isExplicitConstruction = true;
-}
-
-void GenericTasksTestsBase::shouldBuildExplicitAudioChainOnAttach()
-{
-    EXPECT_CALL(testContext->m_gstPlayer, buildAudioChain(&testContext->m_appSrcAudio));
-}
-
-void GenericTasksTestsBase::shouldBuildExplicitVideoChainOnAttach()
-{
-    EXPECT_CALL(testContext->m_gstPlayer, buildVideoChain(&testContext->m_appSrcVideo));
-}
-
 void GenericTasksTestsBase::shouldAttachAudioSourceWithChannelsAndRate()
 {
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsNewEmptySimple(StrEq("audio/x-eac3")))
@@ -1737,6 +1717,8 @@ void GenericTasksTestsBase::expectSetCaps()
     EXPECT_CALL(*testContext->m_gstWrapper,
                 gstAppSrcSetCaps(GST_APP_SRC(&testContext->m_appSrcAudio), &testContext->m_gstCaps1));
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsUnref(&testContext->m_gstCaps1));
+    // AttachSource builds the explicit audio chain from the new appsrc.
+    EXPECT_CALL(testContext->m_gstPlayer, buildAudioChain(&testContext->m_appSrcAudio));
 }
 
 void GenericTasksTestsBase::shouldAttachVideoSource(const std::string &mime, const std::string &alignment,
@@ -1795,26 +1777,7 @@ void GenericTasksTestsBase::shouldAttachSubtitleSource()
     EXPECT_CALL(*testContext->m_glibWrapper, gFree(&testContext->m_capsStr));
     EXPECT_CALL(*testContext->m_gstWrapper, gstElementFactoryMake(_, StrEq(kSubtitleName.c_str())))
         .WillOnce(Return(&testContext->m_appSrcSubtitle));
-    EXPECT_CALL(*testContext->m_gstTextTrackSinkFactoryMock, createGstTextTrackSink())
-        .WillOnce(Return(&testContext->m_textTrackSink));
-    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_pipeline, StrEq("text-sink")));
-    EXPECT_CALL(*testContext->m_glibWrapper,
-                gObjectClassFindProperty(G_OBJECT_GET_CLASS(&testContext->m_pipeline), StrEq("text-sink")))
-        .WillOnce(Return(&testContext->m_paramSpec));
-    EXPECT_CALL(*testContext->m_gstWrapper,
-                gstAppSrcSetCaps(GST_APP_SRC(&testContext->m_appSrcSubtitle), &testContext->m_gstCaps2));
-    EXPECT_CALL(*testContext->m_gstWrapper, gstCapsUnref(&testContext->m_gstCaps2));
-}
-
-void GenericTasksTestsBase::shouldBuildExplicitSubtitleChainOnAttach()
-{
-    EXPECT_CALL(*testContext->m_gstWrapper, gstCapsNewEmpty()).WillOnce(Return(&testContext->m_gstCaps2));
-    EXPECT_CALL(*testContext->m_gstWrapper, gstCapsToString(&testContext->m_gstCaps2))
-        .WillOnce(Return(&testContext->m_capsStr));
-    EXPECT_CALL(*testContext->m_glibWrapper, gFree(&testContext->m_capsStr));
-    EXPECT_CALL(*testContext->m_gstWrapper, gstElementFactoryMake(_, StrEq(kSubtitleName.c_str())))
-        .WillOnce(Return(&testContext->m_appSrcSubtitle));
-    // Explicit path: no playbin text-sink property; the chain appsrc -> RialtoTextTrackSink is built here.
+    // The chain appsrc -> RialtoTextTrackSink is built directly (no playbin text-sink property).
     EXPECT_CALL(*testContext->m_gstTextTrackSinkFactoryMock, createGstTextTrackSink())
         .WillOnce(Return(&testContext->m_textTrackSink));
     EXPECT_CALL(*testContext->m_gstWrapper, gstBinAdd(GST_BIN(&testContext->m_pipeline), &testContext->m_appSrcSubtitle))
@@ -1928,6 +1891,8 @@ void GenericTasksTestsBase::shouldAttachVideoSourceWithEmptyCodecData()
     EXPECT_CALL(*testContext->m_gstWrapper,
                 gstAppSrcSetCaps(GST_APP_SRC(&testContext->m_appSrcVideo), &testContext->m_gstCaps1));
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsUnref(&testContext->m_gstCaps1));
+    // AttachSource builds the explicit video chain from the new appsrc.
+    EXPECT_CALL(testContext->m_gstPlayer, buildVideoChain(&testContext->m_appSrcVideo));
 }
 
 void GenericTasksTestsBase::triggerAttachVideoSourceWithEmptyCodecData()
@@ -2000,6 +1965,8 @@ void GenericTasksTestsBase::expectSetGenericVideoCaps()
     EXPECT_CALL(*testContext->m_gstWrapper,
                 gstAppSrcSetCaps(GST_APP_SRC(&testContext->m_appSrcVideo), &testContext->m_gstCaps1));
     EXPECT_CALL(*testContext->m_gstWrapper, gstCapsUnref(&testContext->m_gstCaps1));
+    // AttachSource builds the explicit video chain from the new appsrc.
+    EXPECT_CALL(testContext->m_gstPlayer, buildVideoChain(&testContext->m_appSrcVideo));
 }
 
 void GenericTasksTestsBase::shouldReattachAudioSource()
@@ -2823,47 +2790,9 @@ void GenericTasksTestsBase::shouldFailToReportPosition()
     EXPECT_CALL(testContext->m_gstPlayer, getPosition(NotNullMatcher())).WillOnce(Return(-1));
 }
 
-void GenericTasksTestsBase::shouldFinishSetupSource()
-{
-    EXPECT_CALL(*testContext->m_gstSrc,
-                setupAndAddAppSrc(std::dynamic_pointer_cast<firebolt::rialto::server::IDecryptionService>(
-                                      testContext->m_decryptionServiceMock)
-                                      .get(),
-                                  testContext->m_element, testContext->m_streamInfoAudio, _, &testContext->m_gstPlayer,
-                                  firebolt::rialto::MediaSourceType::AUDIO))
-        .WillOnce(Invoke(
-            [this](firebolt::rialto::server::IDecryptionService *decryptionService, GstElement *element,
-                   firebolt::rialto::server::StreamInfo &streamInfo, const GstAppSrcCallbacks *callbacks,
-                   gpointer userData, firebolt::rialto::MediaSourceType type)
-            {
-                testContext->m_audioCallbacks = *callbacks;
-                testContext->m_audioUserData = userData;
-            }));
-    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaData(MediaSourceType::AUDIO));
-    EXPECT_CALL(*testContext->m_gstSrc,
-                setupAndAddAppSrc(std::dynamic_pointer_cast<firebolt::rialto::server::IDecryptionService>(
-                                      testContext->m_decryptionServiceMock)
-                                      .get(),
-                                  testContext->m_element, testContext->m_streamInfoVideo, _, &testContext->m_gstPlayer,
-                                  firebolt::rialto::MediaSourceType::VIDEO))
-        .WillOnce(Invoke(
-            [this](firebolt::rialto::server::IDecryptionService *decryptionService, GstElement *element,
-                   firebolt::rialto::server::StreamInfo &streamInfo, const GstAppSrcCallbacks *callbacks,
-                   gpointer userData, firebolt::rialto::MediaSourceType type)
-            {
-                testContext->m_videoCallbacks = *callbacks;
-                testContext->m_videoUserData = userData;
-            }));
-    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaData(MediaSourceType::VIDEO));
-    EXPECT_CALL(*testContext->m_gstSrc, allAppSrcsAdded(testContext->m_element));
-    EXPECT_CALL(testContext->m_gstPlayerClient, notifyPlaybackState(firebolt::rialto::PlaybackState::IDLE));
-}
-
 void GenericTasksTestsBase::shouldFinishSetupSourceExplicit()
 {
-    testContext->m_context.isExplicitConstruction = true;
-
-    // Explicit path configures the audio chain appsrc directly (no rialtosrc / setupAndAddAppSrc).
+    // Configures the audio chain appsrc directly (no rialtosrc / setupAndAddAppSrc).
     EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("block")));
     EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("format")));
     EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcAudio, StrEq("stream-type")));
@@ -2907,20 +2836,6 @@ void GenericTasksTestsBase::triggerAudioCallbackNeedData()
                                                  testContext->m_audioUserData);
 }
 
-void GenericTasksTestsBase::shouldScheduleNeedMediaDataVideo()
-{
-    EXPECT_CALL(testContext->m_gstPlayer, scheduleNeedMediaData(GST_APP_SRC(&testContext->m_appSrcVideo)));
-}
-
-void GenericTasksTestsBase::triggerVideoCallbackNeedData()
-{
-    ASSERT_TRUE(testContext->m_videoCallbacks.need_data);
-    ASSERT_TRUE(testContext->m_videoUserData);
-    reinterpret_cast<void (*)(GstAppSrc *, guint, gpointer)>(
-        testContext->m_videoCallbacks.need_data)(GST_APP_SRC(&testContext->m_appSrcVideo), kDataLength,
-                                                 testContext->m_videoUserData);
-}
-
 void GenericTasksTestsBase::shouldScheduleEnoughDataAudio()
 {
     EXPECT_CALL(testContext->m_gstPlayer, scheduleEnoughData(GST_APP_SRC(&testContext->m_appSrcAudio)));
@@ -2935,20 +2850,6 @@ void GenericTasksTestsBase::triggerAudioCallbackEnoughData()
                                                    testContext->m_audioUserData);
 }
 
-void GenericTasksTestsBase::shouldScheduleEnoughDataVideo()
-{
-    EXPECT_CALL(testContext->m_gstPlayer, scheduleEnoughData(GST_APP_SRC(&testContext->m_appSrcVideo)));
-}
-
-void GenericTasksTestsBase::triggerVideoCallbackEnoughData()
-{
-    ASSERT_TRUE(testContext->m_videoCallbacks.enough_data);
-    ASSERT_TRUE(testContext->m_videoUserData);
-    reinterpret_cast<void (*)(GstAppSrc *, gpointer)>(
-        testContext->m_videoCallbacks.enough_data)(GST_APP_SRC(&testContext->m_appSrcVideo),
-                                                   testContext->m_videoUserData);
-}
-
 void GenericTasksTestsBase::triggerAudioCallbackSeekData()
 {
     EXPECT_TRUE(testContext->m_audioCallbacks.seek_data);
@@ -2958,28 +2859,9 @@ void GenericTasksTestsBase::triggerAudioCallbackSeekData()
                                                  testContext->m_audioUserData);
 }
 
-void GenericTasksTestsBase::triggerVideoCallbackSeekData()
-{
-    EXPECT_TRUE(testContext->m_videoCallbacks.seek_data);
-    EXPECT_TRUE(testContext->m_videoUserData);
-    reinterpret_cast<gboolean (*)(GstAppSrc *, guint64, gpointer)>(
-        testContext->m_videoCallbacks.seek_data)(GST_APP_SRC(&testContext->m_appSrcVideo), kOffset,
-                                                 testContext->m_videoUserData);
-}
-
-void GenericTasksTestsBase::checkSourcesAttached()
-{
-    EXPECT_TRUE(testContext->m_context.wereAllSourcesAttached);
-}
-
 void GenericTasksTestsBase::checkSetupSourceFinished()
 {
     EXPECT_TRUE(testContext->m_context.setupSourceFinished);
-}
-
-void GenericTasksTestsBase::checkSetupSourceUnfinished()
-{
-    EXPECT_FALSE(testContext->m_context.setupSourceFinished);
 }
 
 void GenericTasksTestsBase::triggerNeedDataAudio()
