@@ -18,21 +18,13 @@
  */
 
 /*
- * Playbin / explicit-construction PARITY suite.
+ * Explicit-construction EXECUTION suite.
  *
- * These cases assert the observable behaviour the MSE generic player must exhibit regardless of how
- * its pipeline is built. They are parameterised over the construction mode so that the same
- * behavioural spec runs against both the legacy `playbin` path and the explicit-construction path
- * during the playbin-removal migration (see PLAYBIN-REMOVAL-PLAN.md).
- *
- * Both parameters are live and EXECUTION-level: the player is built with the real
- * GenericPlayerTaskFactory and a synchronous worker (tasks run inline on enqueue), so the public
- * API drives real tasks through the real player against the mocked GStreamer wrappers. Playbin
- * builds via GStreamer playbin; Explicit drives the explicit-construction path
- * (RIALTO_EXPLICIT_PIPELINE opt-in) and the SoC sinks come from the PlatformBackend. The same
- * spec runs against both so the eventual default-flip is low-risk; where the two paths legitimately
- * differ (playbin autoplugs/detects later vs explicit builds the chain now) the per-mode arrange
- * encodes that, while the observable end-state asserted is the same.
+ * These cases assert the observable behaviour the MSE generic player exhibits when it builds its
+ * pipeline explicitly (appsrc -> decodebin -> ... -> backend sink). They are EXECUTION-level: the
+ * player is built with the real GenericPlayerTaskFactory and a synchronous worker (tasks run inline
+ * on enqueue), so the public API drives real tasks through the real player against the mocked
+ * GStreamer wrappers, and the SoC sinks come from the PlatformBackend.
  */
 
 #include "GstGenericPlayerTestCommon.h"
@@ -41,7 +33,6 @@
 #include "tasks/generic/Eos.h"
 #include "tasks/generic/Pause.h"
 #include "tasks/generic/Play.h"
-#include <cstdlib>
 #include <gtest/gtest.h>
 #include <memory>
 #include <utility>
@@ -52,14 +43,7 @@ using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::StrEq;
 
-enum class ConstructionMode
-{
-    Playbin,
-    Explicit
-};
-
-class GstGenericPlayerParityTest : public GstGenericPlayerTestCommon,
-                                   public ::testing::WithParamInterface<ConstructionMode>
+class GstGenericPlayerExplicitConstructionTest : public GstGenericPlayerTestCommon
 {
 protected:
     std::unique_ptr<IGstGenericPlayer> m_sut;
@@ -77,27 +61,39 @@ protected:
     GstElement m_audioSink{};
     GstCaps m_audioCaps{};
     gchar m_capsStr{};
+    GstElement m_videoAppSrc{};
+    GstElement m_videoDecodebin{};
+    GstElement m_videoSink{};
+    GstCaps m_videoCaps{};
+    GstElement m_subtitleAppSrc{};
+    GstElement m_textTrackSink{};
+    GstCaps m_subtitleCaps{};
+    guint m_signalIds{};
 
-    bool isExplicit() const { return GetParam() == ConstructionMode::Explicit; }
+    // The explicit chain builders scan the backend sink for underflow / first-frame telemetry signals;
+    // the reference autoaudiosink/autovideosink expose none, so nothing is connected.
+    void expectNoSinkSignals(GstElement *sink, bool isVideo)
+    {
+        const int kScans = isVideo ? 2 : 1; // underflow always; first-video-frame for video too
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(sink)).Times(kScans).WillRepeatedly(Return(G_TYPE_PARAM));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+            .Times(kScans)
+            .WillRepeatedly(Invoke(
+                [this](GType, guint *nIds)
+                {
+                    *nIds = 0;
+                    return &m_signalIds;
+                }));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_signalIds)).Times(kScans);
+    }
 
-    void TearDown() override { unsetenv("RIALTO_EXPLICIT_PIPELINE"); }
-
-    // Builds the player through the construction path under test. Construction and teardown keep the
-    // mocked task factory (so the shared helpers apply unchanged); the behavioural cases below make the
-    // task factory return a REAL task for the one call under test, which the worker mock then executes
-    // synchronously on enqueue. PlatformBackendMock is injected so the explicit chain can source its
-    // sink.
+    // Builds the player. Construction and teardown keep the mocked task factory (so the shared helpers
+    // apply unchanged); the behavioural cases below make the task factory return a REAL task for the one
+    // call under test, which the worker mock then executes synchronously on enqueue. PlatformBackendMock
+    // is injected so the explicit chain can source its sinks.
     void arrangeAndConstruct()
     {
-        if (isExplicit())
-        {
-            setenv("RIALTO_EXPLICIT_PIPELINE", "1", 1);
-            gstPlayerWillBeCreatedExplicit();
-        }
-        else
-        {
-            gstPlayerWillBeCreated();
-        }
+        gstPlayerWillBeCreated();
         m_sut = std::make_unique<GstGenericPlayer>(&m_gstPlayerClient, m_decryptionServiceMock, MediaType::MSE,
                                                    m_videoReq, m_isLive, m_gstWrapperMock, m_glibWrapperMock,
                                                    m_rdkGstreamerUtilsWrapperMock, m_gstInitialiserMock,
@@ -114,10 +110,8 @@ protected:
         m_sut.reset();
     }
 
-    // Expectations for attaching an AAC audio source. Both paths build the audsrc appsrc and set its
-    // caps; the explicit path additionally builds the deterministic decodebin chain and takes the SoC
-    // sink from the PlatformBackend (playbin autoplugs the decoder/sink lazily, so neither happens at
-    // attach time on that path).
+    // Attaching an AAC audio source builds the audsrc appsrc, sets its caps, builds the deterministic
+    // decodebin chain and takes the SoC sink from the PlatformBackend.
     void expectAttachAudio()
     {
         // Run the real AttachSource task for this call (construction/teardown keep their mock tasks).
@@ -138,27 +132,27 @@ protected:
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_appSrc), &m_audioCaps));
         EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_audioCaps));
 
-        if (isExplicit())
-        {
-            EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("auddecodebin")))
-                .WillOnce(Return(&m_decodebin));
-            EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioconvert"), StrEq("audconvert")))
-                .WillOnce(Return(&m_audioConvert));
-            EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioresample"), StrEq("audresample")))
-                .WillOnce(Return(&m_audioResample));
-            EXPECT_CALL(*m_platformBackendMock, createAudioSink(StrEq("audiosink"))).WillOnce(Return(&m_audioSink));
-            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_appSrc)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_decodebin)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioConvert)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioResample)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioSink)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_appSrc, &m_decodebin)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioConvert, &m_audioResample)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioResample, &m_audioSink)).WillOnce(Return(TRUE));
-            EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
-            EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_audioSink)).WillOnce(Return(&m_audioSink));
-            EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_audioSink)); // released by termPipeline at destroy
-        }
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("auddecodebin")))
+            .WillOnce(Return(&m_decodebin));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioconvert"), StrEq("audconvert")))
+            .WillOnce(Return(&m_audioConvert));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioresample"), StrEq("audresample")))
+            .WillOnce(Return(&m_audioResample));
+        EXPECT_CALL(*m_platformBackendMock, createAudioSink(StrEq("audiosink"))).WillOnce(Return(&m_audioSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_appSrc)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_decodebin)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioConvert)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioResample)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioSink)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_appSrc, &m_decodebin)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioConvert, &m_audioResample)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioResample, &m_audioSink)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
+        // The sink is stored twice (each with its own ref): as m_context.audioSink and as the
+        // playback group's audio playsink-bin analogue; both released by termPipeline at destroy.
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_audioSink)).Times(2).WillRepeatedly(Return(&m_audioSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_audioSink)).Times(2);
+        expectNoSinkSignals(&m_audioSink, false);
     }
 
     std::unique_ptr<IMediaPipeline::MediaSource> makeAudioSource()
@@ -166,7 +160,7 @@ protected:
         return std::make_unique<IMediaPipeline::MediaSourceAudio>("audio/aac", false);
     }
 
-    // Run the real Play task; the pipeline state change is identical on both paths.
+    // Run the real Play task.
     void expectPlay()
     {
         EXPECT_CALL(m_taskFactoryMock, createPlay(_))
@@ -176,7 +170,7 @@ protected:
             .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
     }
 
-    // Run the real Pause task; the pipeline state change is identical on both paths.
+    // Run the real Pause task.
     void expectPause()
     {
         EXPECT_CALL(m_taskFactoryMock, createPause(_, _))
@@ -187,7 +181,7 @@ protected:
             .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
     }
 
-    // Run the real Eos task for the audio source; EOS is signalled on the audsrc appsrc on both paths.
+    // Run the real Eos task for the audio source; EOS is signalled on the audsrc appsrc.
     void expectEosAudio()
     {
         EXPECT_CALL(m_taskFactoryMock, createEos(_, _, MediaSourceType::AUDIO))
@@ -199,13 +193,98 @@ protected:
                 }));
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcEndOfStream(GST_APP_SRC(&m_appSrc))).WillOnce(Return(GST_FLOW_OK));
     }
+
+    // Attaching an H264 video source builds the vidsrc appsrc, sets its caps, builds the deterministic
+    // decodebin chain and takes the SoC video sink from the PlatformBackend keyed by the video id derived
+    // at construction (0 = primary for the default video requirements).
+    void expectAttachVideo()
+    {
+        EXPECT_CALL(m_taskFactoryMock, createAttachSource(_, _, _))
+            .WillOnce(Invoke(
+                [this](GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                       const std::unique_ptr<IMediaPipeline::MediaSource> &source) -> std::unique_ptr<IPlayerTask>
+                {
+                    return std::make_unique<firebolt::rialto::server::tasks::generic::AttachSource>(
+                        context, m_gstWrapperMock, m_glibWrapperMock, m_textTrackSinkFactoryMock, player, source);
+                }));
+
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("video/x-h264"))).WillOnce(Return(&m_videoCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&m_videoCaps)).WillOnce(Return(&m_capsStr));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_capsStr));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(_, StrEq("vidsrc"))).WillOnce(Return(&m_videoAppSrc));
+        EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_videoAppSrc), &m_videoCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_videoCaps));
+
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+            .WillOnce(Return(&m_videoDecodebin));
+        EXPECT_CALL(*m_platformBackendMock, createVideoSink(StrEq("videosink"), 0u)).WillOnce(Return(&m_videoSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoAppSrc)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoDecodebin)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoSink)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_videoAppSrc, &m_videoDecodebin)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_videoDecodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_videoSink)).WillOnce(Return(&m_videoSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_videoSink)); // released by termPipeline at destroy
+        expectNoSinkSignals(&m_videoSink, true);
+    }
+
+    std::unique_ptr<IMediaPipeline::MediaSource> makeVideoSource()
+    {
+        return std::make_unique<IMediaPipeline::MediaSourceVideo>("video/h264", false);
+    }
+
+    // Run the real Eos task for the video source; EOS is signalled on the vidsrc appsrc.
+    void expectEosVideo()
+    {
+        EXPECT_CALL(m_taskFactoryMock, createEos(_, _, MediaSourceType::VIDEO))
+            .WillOnce(Invoke(
+                [this](GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                       const firebolt::rialto::MediaSourceType &type) -> std::unique_ptr<IPlayerTask> {
+                    return std::make_unique<firebolt::rialto::server::tasks::generic::Eos>(context, player,
+                                                                                          m_gstWrapperMock, type);
+                }));
+        EXPECT_CALL(*m_gstWrapperMock, gstAppSrcEndOfStream(GST_APP_SRC(&m_videoAppSrc))).WillOnce(Return(GST_FLOW_OK));
+    }
+
+    // Attaching a subtitle source builds the subsrc appsrc, sets its caps, creates the text-track sink
+    // and builds appsrc -> RialtoTextTrackSink itself (an extra ref taken on the stored sink). The stored
+    // subtitle sink is released by termPipeline at destroy.
+    void expectAttachSubtitle()
+    {
+        EXPECT_CALL(m_taskFactoryMock, createAttachSource(_, _, _))
+            .WillOnce(Invoke(
+                [this](GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                       const std::unique_ptr<IMediaPipeline::MediaSource> &source) -> std::unique_ptr<IPlayerTask>
+                {
+                    return std::make_unique<firebolt::rialto::server::tasks::generic::AttachSource>(
+                        context, m_gstWrapperMock, m_glibWrapperMock, m_textTrackSinkFactoryMock, player, source);
+                }));
+
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmpty()).WillOnce(Return(&m_subtitleCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&m_subtitleCaps)).WillOnce(Return(&m_capsStr));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_capsStr));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(_, StrEq("subsrc"))).WillOnce(Return(&m_subtitleAppSrc));
+        EXPECT_CALL(*m_textTrackSinkFactoryMock, createGstTextTrackSink()).WillOnce(Return(&m_textTrackSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_subtitleAppSrc), &m_subtitleCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_subtitleCaps));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_textTrackSink)); // released by termPipeline at destroy
+
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_subtitleAppSrc)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_textTrackSink)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_subtitleAppSrc, &m_textTrackSink)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_textTrackSink)).WillOnce(Return(&m_textTrackSink));
+    }
+
+    std::unique_ptr<IMediaPipeline::MediaSource> makeSubtitleSource()
+    {
+        return std::make_unique<IMediaPipeline::MediaSourceSubtitle>("application/ttml+xml", "text-track-id");
+    }
 };
 
 /**
- * Parity: the player constructs a usable pipeline and tears it down cleanly, whichever construction
- * path is used.
+ * The player constructs a usable pipeline and tears it down cleanly.
  */
-TEST_P(GstGenericPlayerParityTest, ConstructsAndDestroysSuccessfully)
+TEST_F(GstGenericPlayerExplicitConstructionTest, ConstructsAndDestroysSuccessfully)
 {
     arrangeAndConstruct();
 
@@ -215,11 +294,10 @@ TEST_P(GstGenericPlayerParityTest, ConstructsAndDestroysSuccessfully)
 }
 
 /**
- * Parity: attaching an audio source builds the audsrc appsrc on both paths; the explicit path also
- * builds the decodebin chain and sources the sink from the PlatformBackend (the playbin path defers
- * decoder/sink creation to autoplug). Exercises attach -> real buildAudioChain end-to-end.
+ * Attaching an audio source builds the audsrc appsrc, the decodebin chain and sources the sink from
+ * the PlatformBackend. Exercises attach -> real buildAudioChain end-to-end.
  */
-TEST_P(GstGenericPlayerParityTest, AttachAudioSourceBuildsExpectedGraph)
+TEST_F(GstGenericPlayerExplicitConstructionTest, AttachAudioSourceBuildsExpectedGraph)
 {
     arrangeAndConstruct();
 
@@ -231,9 +309,9 @@ TEST_P(GstGenericPlayerParityTest, AttachAudioSourceBuildsExpectedGraph)
 }
 
 /**
- * Parity: play drives the pipeline to PLAYING regardless of construction path.
+ * Play drives the pipeline to PLAYING.
  */
-TEST_P(GstGenericPlayerParityTest, PlayDrivesPipelineToPlaying)
+TEST_F(GstGenericPlayerExplicitConstructionTest, PlayDrivesPipelineToPlaying)
 {
     arrangeAndConstruct();
 
@@ -245,9 +323,9 @@ TEST_P(GstGenericPlayerParityTest, PlayDrivesPipelineToPlaying)
 }
 
 /**
- * Parity: pause drives the pipeline to PAUSED regardless of construction path.
+ * Pause drives the pipeline to PAUSED.
  */
-TEST_P(GstGenericPlayerParityTest, PauseDrivesPipelineToPaused)
+TEST_F(GstGenericPlayerExplicitConstructionTest, PauseDrivesPipelineToPaused)
 {
     arrangeAndConstruct();
 
@@ -258,10 +336,9 @@ TEST_P(GstGenericPlayerParityTest, PauseDrivesPipelineToPaused)
 }
 
 /**
- * Parity: after an audio source is attached, EOS is signalled on its appsrc regardless of
- * construction path.
+ * After an audio source is attached, EOS is signalled on its appsrc.
  */
-TEST_P(GstGenericPlayerParityTest, SetEosSignalsAudioAppSrc)
+TEST_F(GstGenericPlayerExplicitConstructionTest, SetEosSignalsAudioAppSrc)
 {
     arrangeAndConstruct();
 
@@ -275,7 +352,49 @@ TEST_P(GstGenericPlayerParityTest, SetEosSignalsAudioAppSrc)
     destroy();
 }
 
-INSTANTIATE_TEST_SUITE_P(PlaybinAndExplicit, GstGenericPlayerParityTest,
-                         ::testing::Values(ConstructionMode::Playbin, ConstructionMode::Explicit),
-                         [](const ::testing::TestParamInfo<ConstructionMode> &info)
-                         { return info.param == ConstructionMode::Playbin ? "Playbin" : "Explicit"; });
+/**
+ * Attaching a video source builds the vidsrc appsrc, the decodebin chain and sources the sink from
+ * the PlatformBackend keyed by the video id. Exercises attach -> real buildVideoChain end-to-end.
+ */
+TEST_F(GstGenericPlayerExplicitConstructionTest, AttachVideoSourceBuildsExpectedGraph)
+{
+    arrangeAndConstruct();
+
+    expectAttachVideo();
+    auto source{makeVideoSource()};
+    m_sut->attachSource(source);
+
+    destroy();
+}
+
+/**
+ * After a video source is attached, EOS is signalled on its appsrc.
+ */
+TEST_F(GstGenericPlayerExplicitConstructionTest, SetEosSignalsVideoAppSrc)
+{
+    arrangeAndConstruct();
+
+    expectAttachVideo();
+    auto source{makeVideoSource()};
+    m_sut->attachSource(source);
+
+    expectEosVideo();
+    m_sut->setEos(MediaSourceType::VIDEO);
+
+    destroy();
+}
+
+/**
+ * Attaching a subtitle source builds the subsrc appsrc, the text-track sink and
+ * appsrc -> RialtoTextTrackSink. Exercises attach -> real buildSubtitleChain end-to-end.
+ */
+TEST_F(GstGenericPlayerExplicitConstructionTest, AttachSubtitleSourceBuildsExpectedGraph)
+{
+    arrangeAndConstruct();
+
+    expectAttachSubtitle();
+    auto source{makeSubtitleSource()};
+    m_sut->attachSource(source);
+
+    destroy();
+}

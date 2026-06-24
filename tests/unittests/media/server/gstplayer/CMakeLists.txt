@@ -65,6 +65,7 @@ add_gtests(RialtoServerGstPlayerUnitTests
     genericPlayer/tasksTests/SetupAudioDecoderTest.cpp
     genericPlayer/tasksTests/SetupElementTest.cpp
     genericPlayer/tasksTests/SetupSourceTest.cpp
+    genericPlayer/tasksTests/SetupVideoParserTest.cpp
     genericPlayer/tasksTests/ShutdownTest.cpp
     genericPlayer/tasksTests/StopTest.cpp
     genericPlayer/tasksTests/SwitchSourceTest.cpp

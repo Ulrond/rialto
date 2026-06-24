@@ -65,6 +65,7 @@
 #include "tasks/generic/SetupAudioDecoder.h"
 #include "tasks/generic/SetupElement.h"
 #include "tasks/generic/SetupSource.h"
+#include "tasks/generic/SetupVideoParser.h"
 #include "tasks/generic/Shutdown.h"
 #include "tasks/generic/Stop.h"
 #include "tasks/generic/SwitchSource.h"
@@ -215,6 +216,13 @@ TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupAudioDecoder)
     auto task = m_sut.createSetupAudioDecoder(m_context, m_gstPlayer);
     EXPECT_NE(task, nullptr);
     EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::SetupAudioDecoder &>(*task));
+}
+
+TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupVideoParser)
+{
+    auto task = m_sut.createSetupVideoParser(m_context, m_gstPlayer);
+    EXPECT_NE(task, nullptr);
+    EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::SetupVideoParser &>(*task));
 }
 
 TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupSource)

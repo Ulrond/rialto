@@ -76,6 +76,8 @@ public:
                                                     GstElement *element) const override;
     std::unique_ptr<IPlayerTask> createSetupAudioDecoder(GenericPlayerContext &context,
                                                          IGstGenericPlayerPrivate &player) const override;
+    std::unique_ptr<IPlayerTask> createSetupVideoParser(GenericPlayerContext &context,
+                                                        IGstGenericPlayerPrivate &player) const override;
     std::unique_ptr<IPlayerTask> createSetupSource(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
                                                    GstElement *source) const override;
     std::unique_ptr<IPlayerTask> createSetVideoGeometry(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,

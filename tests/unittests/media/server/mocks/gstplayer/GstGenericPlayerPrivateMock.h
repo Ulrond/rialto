@@ -47,6 +47,7 @@ public:
     MOCK_METHOD(bool, setRenderFrame, (), (override));
     MOCK_METHOD(bool, setBufferingLimit, (), (override));
     MOCK_METHOD(bool, setEnableRateCorrection, (), (override));
+    MOCK_METHOD(void, connectDecoderSignals, (const MediaSourceType &mediaSourceType), (override));
     MOCK_METHOD(bool, setUseBuffering, (), (override));
     MOCK_METHOD(bool, setShowVideoWindow, (), (override));
     MOCK_METHOD(void, notifyNeedMediaData, (const MediaSourceType mediaSource), (override));
@@ -83,6 +84,7 @@ public:
     MOCK_METHOD(bool, hasSourceType, (const MediaSourceType &mediaSourceType), (const, override));
     MOCK_METHOD(void, notifyPlaybackInfo, (), (override));
     MOCK_METHOD(void, buildAudioChain, (GstElement * source), (override));
+    MOCK_METHOD(void, buildVideoChain, (GstElement * source), (override));
 };
 } // namespace firebolt::rialto::server
 

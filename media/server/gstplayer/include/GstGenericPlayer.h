@@ -168,6 +168,7 @@ private:
     bool setRenderFrame() override;
     bool setBufferingLimit() override;
     bool setEnableRateCorrection() override;
+    void connectDecoderSignals(const MediaSourceType &mediaSourceType) override;
     bool setUseBuffering() override;
     void notifyNeedMediaData(const MediaSourceType mediaSource) override;
     GstBuffer *createBuffer(const IMediaPipeline::MediaSegment &mediaSegment) const override;
@@ -203,61 +204,14 @@ private:
     bool isAsync(const MediaSourceType &mediaSourceType) const;
     void notifyPlaybackInfo() override;
     void buildAudioChain(GstElement *source) override;
+    void buildVideoChain(GstElement *source) override;
 
 private:
     /**
-     * @brief Initialises the player pipeline for MSE playback, dispatching to the playbin or the
-     *        explicit-construction path (transitional RIALTO_EXPLICIT_PIPELINE opt-in switch).
+     * @brief Initialises the MSE pipeline (plain pipeline container; per-stream chains are built
+     *        explicitly in AttachSource). No playbin autoplugging.
      */
     void initMsePipeline();
-
-    /**
-     * @brief Initialises the MSE pipeline explicitly (plain pipeline container; per-stream chains
-     *        are built in AttachSource). No playbin autoplugging.
-     */
-    void initMsePipelineExplicit();
-
-    /**
-     * @brief Initialises the MSE pipeline via GStreamer playbin (legacy autoplugging path).
-     */
-    void initMsePipelinePlaybin();
-
-    /**
-     * @brief Gets the flag from gstreamer.
-     *
-     * @param[in] nick : The name of the flag in gstreamer.
-     *
-     * @retval Value of the flag or 0 on error.
-     */
-    unsigned getGstPlayFlag(const char *nick);
-
-    /**
-     * @brief Callback on source-setup. Called by the Gstreamer thread
-     *
-     * @param[in] pipeline  : The pipeline the signal was fired from.
-     * @param[in] source    : The source to setup.
-     * @param[in] self      : Reference to the calling object.
-     */
-    static void setupSource(GstElement *pipeline, GstElement *source, GstGenericPlayer *self);
-
-    /**
-     * @brief Callback on element-setup. Called by the Gstreamer thread
-     *
-     * @param[in] pipeline  : The pipeline the signal was fired from.
-     * @param[in] element   : an element that was added to the playbin hierarchy
-     * @param[in] self      : Reference to the calling object.
-     */
-    static void setupElement(GstElement *pipeline, GstElement *element, GstGenericPlayer *self);
-
-    /**
-     * @brief Callback on element-setup. Called by the Gstreamer thread
-     *
-     * @param[in] pipeline  : The pipeline the signal was fired from.
-     * @param[in] bin       : the GstBin the element was added to
-     * @param[in] element   : an element that was added to the playbin hierarchy
-     * @param[in] self      : Reference to the calling object.
-     */
-    static void deepElementAdded(GstBin *pipeline, GstBin *bin, GstElement *element, GstGenericPlayer *self);
 
     /**
      * @brief Callback on the explicit audio chain's decodebin pad-added. Called by the Gstreamer
@@ -270,6 +224,16 @@ private:
     static void audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self);
 
     /**
+     * @brief Callback on the explicit video chain's decodebin pad-added. Called by the Gstreamer
+     *        thread. Links the decoder's freshly-exposed src pad to the backend video sink.
+     *
+     * @param[in] decodebin : the decodebin that exposed the pad.
+     * @param[in] pad       : the decoder src pad to link downstream.
+     * @param[in] self      : Reference to the calling object.
+     */
+    static void videoDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self);
+
+    /**
      * @brief Enqueues a SetupAudioDecoder task. Called from the explicit audio chain's decodebin
      *        pad-added callback (Gstreamer thread) once the decoder has been autoplugged, so the
      *        pending audio-decoder properties are applied on the worker thread.
@@ -277,18 +241,21 @@ private:
     void scheduleSetupAudioDecoder();
 
     /**
-     * @brief Creates a Westeros sink and sets the res-usage flag for a secondary video.
-     *
-     * @retval true on success.
+     * @brief Enqueues a SetupVideoParser task. Called from the explicit video chain's decodebin
+     *        pad-added callback (Gstreamer thread) once the parser has been autoplugged, so the
+     *        pending video-parser property is applied on the worker thread.
      */
-    bool setWesterossinkSecondaryVideo();
+    void scheduleSetupVideoParser();
 
     /**
-     * @brief Creates an "erm" gstreamer context in the pipeline
+     * @brief Connects the underflow (and, for video, first-video-frame) telemetry callbacks on an
+     *        explicit-construction element whose role and media type are already known. The
+     *        explicit-path analogue of the SetupElement reactive wiring.
      *
-     * @retval true on success.
+     * @param[in] element         : The sink or decoder to wire.
+     * @param[in] mediaSourceType : AUDIO or VIDEO.
      */
-    bool setErmContext();
+    void connectStreamSignals(GstElement *element, const MediaSourceType &mediaSourceType);
 
     /**
      * @brief Terminates the player pipeline.
@@ -299,11 +266,6 @@ private:
      * @brief Shutdown and destroys the worker thread.
      */
     void resetWorkerThread();
-
-    /**
-     * @brief Whether native audio should be enabled on the current platform.
-     */
-    bool shouldEnableNativeAudio();
 
     /**
      * @brief Sets codec_data in GstCaps if available
@@ -349,6 +311,25 @@ private:
      * @retval The parser, NULL if not found
      */
     GstElement *getParser(const MediaSourceType &mediaSourceType);
+
+    /**
+     * @brief Gets the audio typefind element from within the audio decodebin (explicit-construction path).
+     *
+     * Located by name rather than factory type; scoped to m_curAudioDecodeBin so a per-stream video
+     * decodebin's typefind is not matched.
+     *
+     * @retval The typefind, NULL if not found
+     */
+    GstElement *getAudioTypefind();
+
+    /**
+     * @brief Refreshes the audio decoder/parser/typefind playback-group handles from the live decodebin.
+     *
+     * Explicit-construction analogue of the playbin path's DeepElementAdded: there are no playbin signals
+     * to populate the playback group that the audio-codec-switch machinery reads, so the per-switch
+     * handles are refreshed from the graph just before a codec switch. Called by worker thread only.
+     */
+    void updateAudioPlaybackGroupHandles();
 
     /**
      * @brief Constructs new Audio Attributes structure based on MediaSource
@@ -431,13 +412,6 @@ private:
      * @param[in] source : the media source
      */
     void pushAdditionalSegmentIfRequired(GstElement *source);
-
-    /**
-     * @brief Sets the audio and video flags on the pipeline based on the input.
-     *
-     * @param[in] enableAudio : Whether to enable audio flags.
-     */
-    void setPlaybinFlags(bool enableAudio = true);
 
 private:
     /**
@@ -538,6 +512,12 @@ private:
      *        link the decoder src pad to it. Set by buildAudioChain (explicit construction only).
      */
     GstElement *m_explicitAudioConvert{nullptr};
+
+    /**
+     * @brief The explicit video chain's backend video sink, held so the decodebin pad-added callback
+     *        can link the decoder src pad to it. Set by buildVideoChain (explicit construction only).
+     */
+    GstElement *m_explicitVideoSink{nullptr};
 };
 
 } // namespace firebolt::rialto::server

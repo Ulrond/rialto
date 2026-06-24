@@ -96,45 +96,22 @@ void FinishSetupSource::execute() const
 
     GstAppSrcCallbacks callbacks = {appSrcNeedData, appSrcEnoughData, appSrcSeekData, {nullptr}};
 
-    if (m_context.isExplicitConstruction)
+    // Each stream's appsrc is already in the pipeline (built by buildAudioChain/buildVideoChain/
+    // buildSubtitleChain) and there is no rialtosrc. Wire its data-flow callbacks directly, bypassing
+    // GstSrc::setupAndAddAppSrc.
+    for (auto &elem : m_context.streamInfo)
     {
-        // Explicit construction: the audio chain's appsrc is already in the pipeline (built by
-        // buildAudioChain) and there is no rialtosrc. Wire its data-flow callbacks directly,
-        // bypassing GstSrc::setupAndAddAppSrc. Video/subtitle chains follow in stage 4.
-        auto audioIt = m_context.streamInfo.find(firebolt::rialto::MediaSourceType::AUDIO);
-        if (audioIt != m_context.streamInfo.end())
+        const firebolt::rialto::MediaSourceType sourceType = elem.first;
+        if (sourceType == firebolt::rialto::MediaSourceType::UNKNOWN)
         {
-            StreamInfo &streamInfo = audioIt->second;
-            configureExplicitAppSrc(streamInfo, &callbacks, firebolt::rialto::MediaSourceType::AUDIO);
-            streamInfo.isDataNeeded = true;
-            m_player.notifyNeedMediaData(firebolt::rialto::MediaSourceType::AUDIO);
-        }
-    }
-    else
-    {
-        if (!m_context.source)
-        {
-            RIALTO_SERVER_LOG_DEBUG("Source is not ready");
-            return;
+            RIALTO_SERVER_LOG_WARN("Unknown media segment type");
+            continue;
         }
 
-        for (auto &elem : m_context.streamInfo)
-        {
-            firebolt::rialto::MediaSourceType sourceType = elem.first;
-            if (sourceType == firebolt::rialto::MediaSourceType::UNKNOWN)
-            {
-                RIALTO_SERVER_LOG_WARN("Unknown media segment type");
-                continue;
-            }
-
-            StreamInfo &streamInfo = elem.second;
-            m_context.gstSrc->setupAndAddAppSrc(m_context.decryptionService, m_context.source, streamInfo, &callbacks,
-                                                &m_player, sourceType);
-            streamInfo.isDataNeeded = true;
-            m_player.notifyNeedMediaData(sourceType);
-        }
-
-        m_context.gstSrc->allAppSrcsAdded(m_context.source);
+        StreamInfo &streamInfo = elem.second;
+        configureExplicitAppSrc(streamInfo, &callbacks, sourceType);
+        streamInfo.isDataNeeded = true;
+        m_player.notifyNeedMediaData(sourceType);
     }
 
     // Notify GstPlayerClient of Idle state once setup has finished

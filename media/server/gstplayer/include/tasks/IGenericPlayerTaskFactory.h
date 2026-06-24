@@ -244,6 +244,17 @@ public:
                                                                  IGstGenericPlayerPrivate &player) const = 0;
 
     /**
+     * @brief Creates a SetupVideoParser task.
+     *
+     * @param[in] context    : The GstGenericPlayer context
+     * @param[in] player     : The GstGenericPlayer instance
+     *
+     * @retval the new SetupVideoParser task instance.
+     */
+    virtual std::unique_ptr<IPlayerTask> createSetupVideoParser(GenericPlayerContext &context,
+                                                                IGstGenericPlayerPrivate &player) const = 0;
+
+    /**
      * @brief Creates a SetupSource task.
      *
      * @param[in] context   : The GstGenericPlayer context

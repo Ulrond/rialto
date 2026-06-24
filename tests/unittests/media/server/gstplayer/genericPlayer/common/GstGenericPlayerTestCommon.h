@@ -68,10 +68,6 @@ public:
     GstGenericPlayerTestCommon() = default;
     ~GstGenericPlayerTestCommon() override = default;
 
-    void triggerSetupSource(GstElement *element);
-    void triggerSetupElement(GstElement *element);
-    void triggerDeepElementAdded(GstElement *element);
-
     StrictMock<GstGenericPlayerClientMock> m_gstPlayerClient;
     std::shared_ptr<StrictMock<GstWrapperMock>> m_gstWrapperMock{std::make_shared<StrictMock<GstWrapperMock>>()};
     std::shared_ptr<StrictMock<GlibWrapperMock>> m_glibWrapperMock{std::make_shared<StrictMock<GlibWrapperMock>>()};
@@ -116,19 +112,12 @@ public:
 
 protected:
     void gstPlayerWillBeCreated();
-    void gstPlayerWillBeCreatedExplicit();
     void gstPlayerWillBeDestroyed();
     void expectShutdown();
     void expectStop();
     void executeTaskWhenEnqueued();
     void initFactories();
-    void expectMakePlaybin();
     void expectMakePipeline();
-    void expectSetFlags();
-    void expectSetFlagsWithNativeAudio();
-    void expectSetSignalCallbacks();
-    void expectSetUri();
-    void expectCheckPlaySink();
     void expectSetMessageCallback();
     void expectGetDecoder(GstElement *element);
     void expectGetVideoParser(GstElement *element);

@@ -136,6 +136,16 @@ public:
     virtual bool setEnableRateCorrection() = 0;
 
     /**
+     * @brief Connects the underflow (and, for video, first-video-frame) telemetry callbacks on the
+     *        explicit chain's autoplugged decoder. Called by the worker thread once the decodebin has
+     *        exposed the decoder, so AAMP underflow/first-frame reporting is preserved on the explicit
+     *        path (the backend sink is wired earlier, during chain construction).
+     *
+     * @param[in] mediaSourceType : AUDIO or VIDEO.
+     */
+    virtual void connectDecoderSignals(const MediaSourceType &mediaSourceType) = 0;
+
+    /**
      * @brief Sets use buffering. Called by the worker thread.
      *
      * @retval true on success.
@@ -342,6 +352,14 @@ public:
      * @param[in] source : the audio appsrc the chain is built around.
      */
     virtual void buildAudioChain(GstElement *source) = 0;
+
+    /**
+     * @brief Builds the explicit-construction video chain (appsrc -> decodebin -> backend video sink)
+     *        for the given source appsrc, and stores the sink. Called by the worker thread.
+     *
+     * @param[in] source : the video appsrc to build the chain from.
+     */
+    virtual void buildVideoChain(GstElement *source) = 0;
 };
 } // namespace firebolt::rialto::server
 

@@ -22,108 +22,75 @@
 class FinishSetupSourceTest : public GenericTasksTestsBase
 {
 protected:
-    FinishSetupSourceTest()
-    {
-        setContextStreamInfo(firebolt::rialto::MediaSourceType::AUDIO);
-        setContextStreamInfo(firebolt::rialto::MediaSourceType::VIDEO);
-    }
+    FinishSetupSourceTest() { setContextStreamInfo(firebolt::rialto::MediaSourceType::AUDIO); }
 };
 
 TEST_F(FinishSetupSourceTest, shouldFinishSetupSource)
 {
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-}
-
-TEST_F(FinishSetupSourceTest, shouldFinishSetupSourceExplicit)
-{
     shouldFinishSetupSourceExplicit();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-}
-
-TEST_F(FinishSetupSourceTest, shouldScheduleAudioNeedDataExplicit)
-{
-    shouldFinishSetupSourceExplicit();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleNeedMediaDataAudio();
-    triggerAudioCallbackNeedData();
-}
-
-TEST_F(FinishSetupSourceTest, shouldScheduleAudioSeekDataExplicit)
-{
-    shouldFinishSetupSourceExplicit();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleEnoughDataAudio();
-    triggerAudioCallbackSeekData();
-}
-
-TEST_F(FinishSetupSourceTest, shouldFinishSetupSourceWithUnknownSource)
-{
-    setContextStreamInfo(firebolt::rialto::MediaSourceType::UNKNOWN);
-    shouldFinishSetupSource();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
 }
 
 TEST_F(FinishSetupSourceTest, shouldScheduleAudioNeedData)
 {
-    shouldFinishSetupSource();
+    shouldFinishSetupSourceExplicit();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
     shouldScheduleNeedMediaDataAudio();
     triggerAudioCallbackNeedData();
 }
 
-TEST_F(FinishSetupSourceTest, shouldScheduleVideoNeedData)
-{
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleNeedMediaDataVideo();
-    triggerVideoCallbackNeedData();
-}
 TEST_F(FinishSetupSourceTest, shouldScheduleAudioEnoughData)
 {
-    shouldFinishSetupSource();
+    shouldFinishSetupSourceExplicit();
     triggerFinishSetupSource();
     shouldScheduleEnoughDataAudio();
     triggerAudioCallbackEnoughData();
 }
 
-TEST_F(FinishSetupSourceTest, shouldScheduleVideoEnoughData)
-{
-    shouldFinishSetupSource();
-    triggerFinishSetupSource();
-    checkSetupSourceFinished();
-    shouldScheduleEnoughDataVideo();
-    triggerVideoCallbackEnoughData();
-}
-
 TEST_F(FinishSetupSourceTest, shouldScheduleAudioSeekData)
 {
-    shouldFinishSetupSource();
+    shouldFinishSetupSourceExplicit();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
     shouldScheduleEnoughDataAudio();
     triggerAudioCallbackSeekData();
 }
 
-TEST_F(FinishSetupSourceTest, shouldScheduleVideoSeekData)
+TEST_F(FinishSetupSourceTest, shouldWireAudioVideoAndSubtitleAppSrcs)
 {
-    shouldFinishSetupSource();
+    setContextStreamInfo(firebolt::rialto::MediaSourceType::VIDEO);
+    setContextStreamInfo(firebolt::rialto::MediaSourceType::SUBTITLE);
+    shouldFinishSetupSourceExplicit(); // audio chain appsrc + IDLE notification
+    shouldConfigureExplicitVideoAppSrc();
+    shouldConfigureExplicitSubtitleAppSrc();
     triggerFinishSetupSource();
     checkSetupSourceFinished();
-    shouldScheduleEnoughDataVideo();
-    triggerVideoCallbackSeekData();
 }
-TEST_F(FinishSetupSourceTest, shouldntFinishSetupSourceWhenSourceNotSet)
+
+TEST_F(FinishSetupSourceTest, shouldScheduleVideoNeedData)
 {
-    setContextSourceNull();
+    setContextStreamInfo(firebolt::rialto::MediaSourceType::VIDEO);
+    setContextStreamInfo(firebolt::rialto::MediaSourceType::SUBTITLE);
+    shouldFinishSetupSourceExplicit();
+    shouldConfigureExplicitVideoAppSrc();
+    shouldConfigureExplicitSubtitleAppSrc();
     triggerFinishSetupSource();
-    checkSourcesAttached();
-    checkSetupSourceUnfinished();
+    checkSetupSourceFinished();
+    shouldScheduleNeedMediaDataVideo();
+    triggerVideoCallbackNeedData();
+}
+
+TEST_F(FinishSetupSourceTest, shouldScheduleSubtitleNeedData)
+{
+    setContextStreamInfo(firebolt::rialto::MediaSourceType::VIDEO);
+    setContextStreamInfo(firebolt::rialto::MediaSourceType::SUBTITLE);
+    shouldFinishSetupSourceExplicit();
+    shouldConfigureExplicitVideoAppSrc();
+    shouldConfigureExplicitSubtitleAppSrc();
+    triggerFinishSetupSource();
+    checkSetupSourceFinished();
+    shouldScheduleNeedMediaDataSubtitle();
+    triggerSubtitleCallbackNeedData();
 }
