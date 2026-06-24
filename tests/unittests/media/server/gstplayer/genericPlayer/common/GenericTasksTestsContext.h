@@ -84,6 +84,7 @@ public:
     GstElement m_audioParentSink{};
     GstAppSrcCallbacks m_audioCallbacks{};
     GstAppSrcCallbacks m_videoCallbacks{};
+    GstAppSrcCallbacks m_subtitleCallbacks{};
     GstStructure m_structure{};
     GstEvent m_event{};
     GstSegment m_segment{};
@@ -114,6 +115,7 @@ public:
     gchar m_xEac3Str[13]{"audio/x-eac3"};
     gpointer m_videoUserData{};
     gpointer m_audioUserData{};
+    gpointer m_subtitleUserData{};
     GValue m_value{};
     GParamSpec m_paramSpec{};
     GObject m_gObj{};

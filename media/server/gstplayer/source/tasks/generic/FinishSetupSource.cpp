@@ -96,15 +96,22 @@ void FinishSetupSource::execute() const
 
     GstAppSrcCallbacks callbacks = {appSrcNeedData, appSrcEnoughData, appSrcSeekData, {nullptr}};
 
-    // The audio chain's appsrc is already in the pipeline (built by buildAudioChain) and there is no
-    // rialtosrc. Wire its data-flow callbacks directly, bypassing GstSrc::setupAndAddAppSrc.
-    auto audioIt = m_context.streamInfo.find(firebolt::rialto::MediaSourceType::AUDIO);
-    if (audioIt != m_context.streamInfo.end())
+    // Each stream's appsrc is already in the pipeline (built by buildAudioChain/buildVideoChain/
+    // buildSubtitleChain) and there is no rialtosrc. Wire its data-flow callbacks directly, bypassing
+    // GstSrc::setupAndAddAppSrc.
+    for (auto &elem : m_context.streamInfo)
     {
-        StreamInfo &streamInfo = audioIt->second;
-        configureExplicitAppSrc(streamInfo, &callbacks, firebolt::rialto::MediaSourceType::AUDIO);
+        const firebolt::rialto::MediaSourceType sourceType = elem.first;
+        if (sourceType == firebolt::rialto::MediaSourceType::UNKNOWN)
+        {
+            RIALTO_SERVER_LOG_WARN("Unknown media segment type");
+            continue;
+        }
+
+        StreamInfo &streamInfo = elem.second;
+        configureExplicitAppSrc(streamInfo, &callbacks, sourceType);
         streamInfo.isDataNeeded = true;
-        m_player.notifyNeedMediaData(firebolt::rialto::MediaSourceType::AUDIO);
+        m_player.notifyNeedMediaData(sourceType);
     }
 
     // Notify GstPlayerClient of Idle state once setup has finished

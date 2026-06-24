@@ -354,9 +354,15 @@ protected:
 
     // FinishSetupSource test methods
     void shouldFinishSetupSourceExplicit();
+    void shouldConfigureExplicitVideoAppSrc();
+    void shouldConfigureExplicitSubtitleAppSrc();
     void triggerFinishSetupSource();
     void shouldScheduleNeedMediaDataAudio();
     void triggerAudioCallbackNeedData();
+    void shouldScheduleNeedMediaDataVideo();
+    void triggerVideoCallbackNeedData();
+    void shouldScheduleNeedMediaDataSubtitle();
+    void triggerSubtitleCallbackNeedData();
     void shouldScheduleEnoughDataAudio();
     void triggerAudioCallbackEnoughData();
     void triggerAudioCallbackSeekData();

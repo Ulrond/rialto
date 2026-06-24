@@ -2814,6 +2814,51 @@ void GenericTasksTestsBase::shouldFinishSetupSourceExplicit()
     EXPECT_CALL(testContext->m_gstPlayerClient, notifyPlaybackState(firebolt::rialto::PlaybackState::IDLE));
 }
 
+void GenericTasksTestsBase::shouldConfigureExplicitVideoAppSrc()
+{
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcVideo, StrEq("block")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcVideo, StrEq("format")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcVideo, StrEq("stream-type")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcVideo, StrEq("min-percent")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcVideo, StrEq("handle-segment-change")));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstAppSrcSetCallbacks(GST_APP_SRC(&testContext->m_appSrcVideo), _,
+                                                                 &testContext->m_gstPlayer, nullptr))
+        .WillOnce(Invoke(
+            [this](GstAppSrc *src, GstAppSrcCallbacks *callbacks, gpointer userData, GDestroyNotify notify)
+            {
+                testContext->m_videoCallbacks = *callbacks;
+                testContext->m_videoUserData = userData;
+            }));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetMaxBytes(GST_APP_SRC(&testContext->m_appSrcVideo), 8u * 1024u * 1024u));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetStreamType(GST_APP_SRC(&testContext->m_appSrcVideo), GST_APP_STREAM_TYPE_SEEKABLE));
+    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaData(MediaSourceType::VIDEO));
+}
+
+void GenericTasksTestsBase::shouldConfigureExplicitSubtitleAppSrc()
+{
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcSubtitle, StrEq("block")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcSubtitle, StrEq("format")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcSubtitle, StrEq("stream-type")));
+    EXPECT_CALL(*testContext->m_glibWrapper, gObjectSetStub(&testContext->m_appSrcSubtitle, StrEq("min-percent")));
+    EXPECT_CALL(*testContext->m_glibWrapper,
+                gObjectSetStub(&testContext->m_appSrcSubtitle, StrEq("handle-segment-change")));
+    EXPECT_CALL(*testContext->m_gstWrapper, gstAppSrcSetCallbacks(GST_APP_SRC(&testContext->m_appSrcSubtitle), _,
+                                                                 &testContext->m_gstPlayer, nullptr))
+        .WillOnce(Invoke(
+            [this](GstAppSrc *src, GstAppSrcCallbacks *callbacks, gpointer userData, GDestroyNotify notify)
+            {
+                testContext->m_subtitleCallbacks = *callbacks;
+                testContext->m_subtitleUserData = userData;
+            }));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetMaxBytes(GST_APP_SRC(&testContext->m_appSrcSubtitle), 256u * 1024u));
+    EXPECT_CALL(*testContext->m_gstWrapper,
+                gstAppSrcSetStreamType(GST_APP_SRC(&testContext->m_appSrcSubtitle), GST_APP_STREAM_TYPE_SEEKABLE));
+    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaData(MediaSourceType::SUBTITLE));
+}
+
 void GenericTasksTestsBase::triggerFinishSetupSource()
 {
     firebolt::rialto::server::tasks::generic::FinishSetupSource task{testContext->m_context, testContext->m_gstWrapper,
@@ -2834,6 +2879,34 @@ void GenericTasksTestsBase::triggerAudioCallbackNeedData()
     reinterpret_cast<void (*)(GstAppSrc *, guint, gpointer)>(
         testContext->m_audioCallbacks.need_data)(GST_APP_SRC(&testContext->m_appSrcAudio), kDataLength,
                                                  testContext->m_audioUserData);
+}
+
+void GenericTasksTestsBase::shouldScheduleNeedMediaDataVideo()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, scheduleNeedMediaData(GST_APP_SRC(&testContext->m_appSrcVideo)));
+}
+
+void GenericTasksTestsBase::triggerVideoCallbackNeedData()
+{
+    ASSERT_TRUE(testContext->m_videoCallbacks.need_data);
+    ASSERT_TRUE(testContext->m_videoUserData);
+    reinterpret_cast<void (*)(GstAppSrc *, guint, gpointer)>(
+        testContext->m_videoCallbacks.need_data)(GST_APP_SRC(&testContext->m_appSrcVideo), kDataLength,
+                                                 testContext->m_videoUserData);
+}
+
+void GenericTasksTestsBase::shouldScheduleNeedMediaDataSubtitle()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, scheduleNeedMediaData(GST_APP_SRC(&testContext->m_appSrcSubtitle)));
+}
+
+void GenericTasksTestsBase::triggerSubtitleCallbackNeedData()
+{
+    ASSERT_TRUE(testContext->m_subtitleCallbacks.need_data);
+    ASSERT_TRUE(testContext->m_subtitleUserData);
+    reinterpret_cast<void (*)(GstAppSrc *, guint, gpointer)>(
+        testContext->m_subtitleCallbacks.need_data)(GST_APP_SRC(&testContext->m_appSrcSubtitle), kDataLength,
+                                                    testContext->m_subtitleUserData);
 }
 
 void GenericTasksTestsBase::shouldScheduleEnoughDataAudio()
