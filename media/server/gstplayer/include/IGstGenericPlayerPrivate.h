@@ -264,38 +264,6 @@ public:
     virtual void updatePlaybackGroup(GstElement *typefind, const GstCaps *caps) = 0;
 
     /**
-     * @brief Notification that a new child element has been added to the autovideosink.
-     *        Stores the child video sink in the player context.
-     *
-     * @param[in] object    : Element added to the autovideosink.
-     */
-    virtual void addAutoVideoSinkChild(GObject *object) = 0;
-
-    /**
-     * @brief Notification that a new child element has been added to the autoaudiosink.
-     *        Stores the child audio sink in the player context.
-     *
-     * @param[in] object    : Element added to the autoaudiosink.
-     */
-    virtual void addAutoAudioSinkChild(GObject *object) = 0;
-
-    /**
-     * @brief Notification that a child element has been removed from the autovideosink.
-     *        Removes the child video sink in the player context if it has been stored.
-     *
-     * @param[in] object    : Element removed from the autovideosink.
-     */
-    virtual void removeAutoVideoSinkChild(GObject *object) = 0;
-
-    /**
-     * @brief Notification that a child element has been removed from the autoaudiosink.
-     *        Removes the child audio sink in the player context if it has been stored.
-     *
-     * @param[in] object    : Element removed from the autoaudiosink.
-     */
-    virtual void removeAutoAudioSinkChild(GObject *object) = 0;
-
-    /**
      * @brief Gets the sink element for source type.
      *
      * @param[in] mediaSourceType : the source type to obtain the sink for

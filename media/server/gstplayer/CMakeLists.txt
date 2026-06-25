@@ -36,7 +36,6 @@ add_library(
         source/tasks/generic/AttachSamples.cpp
         source/tasks/generic/AttachSource.cpp
         source/tasks/generic/CheckAudioUnderflow.cpp
-        source/tasks/generic/DeepElementAdded.cpp
         source/tasks/generic/EnoughData.cpp
         source/tasks/generic/Eos.cpp
         source/tasks/generic/FirstFrameReceived.cpp
@@ -68,8 +67,6 @@ add_library(
         source/tasks/generic/SetVideoGeometry.cpp
         source/tasks/generic/SetVolume.cpp
         source/tasks/generic/SetupAudioDecoder.cpp
-        source/tasks/generic/SetupElement.cpp
-        source/tasks/generic/SetupSource.cpp
         source/tasks/generic/SetupVideoParser.cpp
         source/tasks/generic/Shutdown.cpp
         source/tasks/generic/Stop.cpp

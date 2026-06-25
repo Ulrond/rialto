@@ -91,16 +91,6 @@ struct GenericPlayerContext
     StreamInfoMap streamInfo{};
 
     /**
-     * @brief Child sink of the autovideosink.
-     */
-    GstElement *autoVideoChildSink{nullptr};
-
-    /**
-     * @brief Child sink of the autoaudiosink.
-     */
-    GstElement *autoAudioChildSink{nullptr};
-
-    /**
      * @brief The subtitle sink
      */
     GstElement *subtitleSink{nullptr};

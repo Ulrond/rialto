@@ -192,10 +192,6 @@ private:
     void handleBusMessage(GstMessage *message) override;
     void updatePlaybackGroup(GstElement *typefind, const GstCaps *caps) override;
 
-    void addAutoVideoSinkChild(GObject *object) override;
-    void addAutoAudioSinkChild(GObject *object) override;
-    void removeAutoVideoSinkChild(GObject *object) override;
-    void removeAutoAudioSinkChild(GObject *object) override;
     void pushSampleIfRequired(GstElement *source, const std::string &typeStr) override;
     bool reattachSource(const std::unique_ptr<IMediaPipeline::MediaSource> &source) override;
     bool hasSourceType(const MediaSourceType &mediaSourceType) const override;
@@ -273,26 +269,6 @@ private:
      * @retval True if caps were changed
      */
     bool setCodecData(GstCaps *caps, const std::shared_ptr<CodecData> &codecData) const;
-
-    /**
-     * @brief Gets the video sink element child sink if present.
-     *        Only gets children for GstAutoVideoSink's.
-     *
-     * @param[in] sink    : Sink element to check.
-     *
-     * @retval Underlying child video sink or 'sink' if there are no children.
-     */
-    GstElement *getSinkChildIfAutoVideoSink(GstElement *sink) const;
-
-    /**
-     * @brief Gets the audio sink element child sink if present.
-     *        Only gets children for GstAutoAudioSink's.
-     *
-     * @param[in] sink    : Sink element to check.
-     *
-     * @retval Underlying child audio sink or 'sink' if there are no children.
-     */
-    GstElement *getSinkChildIfAutoAudioSink(GstElement *sink) const;
 
     /**
      * @brief Gets the decoder element for source type.

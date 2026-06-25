@@ -134,6 +134,7 @@ void GstGenericPlayerTestCommon::expectGetVideoParser(GstElement *element)
 
 void GstGenericPlayerTestCommon::expectGetAVSink(const std::string &sinkName, GstElement *elementObj)
 {
+    // getSink returns the property-read sink directly: there is no auto-sink unwrapping (gTypeName).
     EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(sinkName.c_str()), _))
         .WillOnce(Invoke(
             [elementObj](gpointer object, const gchar *first_property_name, void *element)
@@ -141,7 +142,6 @@ void GstGenericPlayerTestCommon::expectGetAVSink(const std::string &sinkName, Gs
                 GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
                 *elementPtr = elementObj;
             }));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(elementObj))).WillOnce(Return(kElementTypeName.c_str()));
 }
 
 void GstGenericPlayerTestCommon::expectGetSink(const std::string &sinkName, GstElement *elementObj)

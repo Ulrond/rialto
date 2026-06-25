@@ -32,7 +32,6 @@
 #include "tasks/generic/AttachSamples.h"
 #include "tasks/generic/AttachSource.h"
 #include "tasks/generic/CheckAudioUnderflow.h"
-#include "tasks/generic/DeepElementAdded.h"
 #include "tasks/generic/EnoughData.h"
 #include "tasks/generic/Eos.h"
 #include "tasks/generic/FinishSetupSource.h"
@@ -63,8 +62,6 @@
 #include "tasks/generic/SetVideoGeometry.h"
 #include "tasks/generic/SetVolume.h"
 #include "tasks/generic/SetupAudioDecoder.h"
-#include "tasks/generic/SetupElement.h"
-#include "tasks/generic/SetupSource.h"
 #include "tasks/generic/SetupVideoParser.h"
 #include "tasks/generic/Shutdown.h"
 #include "tasks/generic/Stop.h"
@@ -110,17 +107,6 @@ TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateAttachSource)
     auto task = m_sut.createAttachSource(m_context, m_gstPlayer, source);
     EXPECT_NE(task, nullptr);
     EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::AttachSource &>(*task));
-}
-
-TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateDeepElementAdded)
-{
-    EXPECT_CALL(*m_gstWrapper, gstObjectParent(_)).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapper, gstObjectCast(_)).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapper, gstElementGetName(_)).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_glibWrapper, gFree(nullptr));
-    auto task = m_sut.createDeepElementAdded(m_context, m_gstPlayer, nullptr, nullptr, nullptr);
-    EXPECT_NE(task, nullptr);
-    EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::DeepElementAdded &>(*task));
 }
 
 TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateEnoughData)
@@ -204,13 +190,6 @@ TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetPosition)
     EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::SetPosition &>(*task));
 }
 
-TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupElement)
-{
-    auto task = m_sut.createSetupElement(m_context, m_gstPlayer, nullptr);
-    EXPECT_NE(task, nullptr);
-    EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::SetupElement &>(*task));
-}
-
 TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupAudioDecoder)
 {
     auto task = m_sut.createSetupAudioDecoder(m_context, m_gstPlayer);
@@ -223,13 +202,6 @@ TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupVideoParser)
     auto task = m_sut.createSetupVideoParser(m_context, m_gstPlayer);
     EXPECT_NE(task, nullptr);
     EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::SetupVideoParser &>(*task));
-}
-
-TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetupSource)
-{
-    auto task = m_sut.createSetupSource(m_context, m_gstPlayer, nullptr);
-    EXPECT_NE(task, nullptr);
-    EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::SetupSource &>(*task));
 }
 
 TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetVideoGeometry)

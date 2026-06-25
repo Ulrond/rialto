@@ -37,10 +37,6 @@ public:
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player,
                  const std::unique_ptr<IMediaPipeline::MediaSource> &source),
                 (const, override));
-    MOCK_METHOD(std::unique_ptr<IPlayerTask>, createDeepElementAdded,
-                (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, GstBin *pipeline, GstBin *bin,
-                 GstElement *element),
-                (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createEnoughData, (GenericPlayerContext & context, GstAppSrc *src),
                 (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createEos,
@@ -74,16 +70,10 @@ public:
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetPosition,
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, std::int64_t position),
                 (const, override));
-    MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupElement,
-                (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, GstElement *element),
-                (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupAudioDecoder,
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player), (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupVideoParser,
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player), (const, override));
-    MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetupSource,
-                (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, GstElement *source),
-                (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetVideoGeometry,
                 (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, const Rectangle &rectangle),
                 (const, override));

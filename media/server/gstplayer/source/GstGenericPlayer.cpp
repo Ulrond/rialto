@@ -711,24 +711,12 @@ GstElement *GstGenericPlayer::getSink(const MediaSourceType &mediaSourceType) co
         {
             RIALTO_SERVER_LOG_DEBUG("Pipeline is valid: %p", m_context.pipeline);
         }
+        // Interim property-read fallback: the explicit path stores its sinks in m_context (the branch
+        // above), so this read only fires for source types whose chain stored no sink — currently the
+        // server component suite, which has no platform backend. There is no auto-sink unwrapping: the
+        // backend creates sinks explicitly, never via autovideosink/autoaudiosink wrappers. Removing this
+        // read entirely (and migrating the component suite) is tracked in #9.
         m_glibWrapper->gObjectGet(m_context.pipeline, kSinkName, &sink, nullptr);
-        if (sink && firebolt::rialto::MediaSourceType::SUBTITLE != mediaSourceType)
-        {
-            GstElement *autoSink{sink};
-            if (firebolt::rialto::MediaSourceType::VIDEO == mediaSourceType)
-                autoSink = getSinkChildIfAutoVideoSink(sink);
-            else if (firebolt::rialto::MediaSourceType::AUDIO == mediaSourceType)
-                autoSink = getSinkChildIfAutoAudioSink(sink);
-
-            // Is this an auto-sink?...
-            if (autoSink != sink)
-            {
-                m_gstWrapper->gstObjectUnref(GST_OBJECT(sink));
-
-                // increase the reference count of the auto sink
-                sink = GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(autoSink)));
-            }
-        }
     }
     return sink;
 }
@@ -2990,110 +2978,6 @@ void GstGenericPlayer::handleBusMessage(GstMessage *message)
 void GstGenericPlayer::updatePlaybackGroup(GstElement *typefind, const GstCaps *caps)
 {
     m_workerThread->enqueueTask(m_taskFactory->createUpdatePlaybackGroup(m_context, *this, typefind, caps));
-}
-
-void GstGenericPlayer::addAutoVideoSinkChild(GObject *object)
-{
-    // Only add children that are sinks
-    if (GST_OBJECT_FLAG_IS_SET(GST_ELEMENT(object), GST_ELEMENT_FLAG_SINK))
-    {
-        RIALTO_SERVER_LOG_DEBUG("Store AutoVideoSink child sink");
-
-        if (m_context.autoVideoChildSink && m_context.autoVideoChildSink != GST_ELEMENT(object))
-        {
-            RIALTO_SERVER_LOG_MIL("AutoVideoSink child is been overwritten");
-        }
-        m_context.autoVideoChildSink = GST_ELEMENT(object);
-    }
-}
-
-void GstGenericPlayer::addAutoAudioSinkChild(GObject *object)
-{
-    // Only add children that are sinks
-    if (GST_OBJECT_FLAG_IS_SET(GST_ELEMENT(object), GST_ELEMENT_FLAG_SINK))
-    {
-        RIALTO_SERVER_LOG_DEBUG("Store AutoAudioSink child sink");
-
-        if (m_context.autoAudioChildSink && m_context.autoAudioChildSink != GST_ELEMENT(object))
-        {
-            RIALTO_SERVER_LOG_MIL("AutoAudioSink child is been overwritten");
-        }
-        m_context.autoAudioChildSink = GST_ELEMENT(object);
-    }
-}
-
-void GstGenericPlayer::removeAutoVideoSinkChild(GObject *object)
-{
-    if (GST_OBJECT_FLAG_IS_SET(GST_ELEMENT(object), GST_ELEMENT_FLAG_SINK))
-    {
-        RIALTO_SERVER_LOG_DEBUG("Remove AutoVideoSink child sink");
-
-        if (m_context.autoVideoChildSink && m_context.autoVideoChildSink != GST_ELEMENT(object))
-        {
-            RIALTO_SERVER_LOG_MIL("AutoVideoSink child sink is not the same as the one stored");
-            return;
-        }
-
-        m_context.autoVideoChildSink = nullptr;
-    }
-}
-
-void GstGenericPlayer::removeAutoAudioSinkChild(GObject *object)
-{
-    if (GST_OBJECT_FLAG_IS_SET(GST_ELEMENT(object), GST_ELEMENT_FLAG_SINK))
-    {
-        RIALTO_SERVER_LOG_DEBUG("Remove AutoAudioSink child sink");
-
-        if (m_context.autoAudioChildSink && m_context.autoAudioChildSink != GST_ELEMENT(object))
-        {
-            RIALTO_SERVER_LOG_MIL("AutoAudioSink child sink is not the same as the one stored");
-            return;
-        }
-
-        m_context.autoAudioChildSink = nullptr;
-    }
-}
-
-GstElement *GstGenericPlayer::getSinkChildIfAutoVideoSink(GstElement *sink) const
-{
-    const gchar *kTmpName = m_glibWrapper->gTypeName(G_OBJECT_TYPE(sink));
-    if (!kTmpName)
-        return sink;
-
-    const std::string kElementTypeName{kTmpName};
-    if (kElementTypeName == "GstAutoVideoSink")
-    {
-        if (!m_context.autoVideoChildSink)
-        {
-            RIALTO_SERVER_LOG_WARN("No child sink has been added to the autovideosink");
-        }
-        else
-        {
-            return m_context.autoVideoChildSink;
-        }
-    }
-    return sink;
-}
-
-GstElement *GstGenericPlayer::getSinkChildIfAutoAudioSink(GstElement *sink) const
-{
-    const gchar *kTmpName = m_glibWrapper->gTypeName(G_OBJECT_TYPE(sink));
-    if (!kTmpName)
-        return sink;
-
-    const std::string kElementTypeName{kTmpName};
-    if (kElementTypeName == "GstAutoAudioSink")
-    {
-        if (!m_context.autoAudioChildSink)
-        {
-            RIALTO_SERVER_LOG_WARN("No child sink has been added to the autoaudiosink");
-        }
-        else
-        {
-            return m_context.autoAudioChildSink;
-        }
-    }
-    return sink;
 }
 
 }; // namespace firebolt::rialto::server
