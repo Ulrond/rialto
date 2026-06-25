@@ -102,6 +102,7 @@ add_gtests(RialtoServerGstPlayerUnitTests
 
     #Platform backend unittests
     platform/LinuxPlatformBackendTest.cpp
+    platform/PlatformBackendLoaderTest.cpp
 
     #GstSrc unittests
     rialtoSrc/CreateTest.cpp
@@ -156,3 +157,47 @@ target_link_libraries(RialtoServerGstPlayerUnitTests
 )
 
 set_target_properties(RialtoServerGstPlayerUnitTests PROPERTIES COMPILE_FLAGS "-Wno-write-strings")
+
+# ---------------------------------------------------------------------------
+# Fixture vendor backend .so files for PlatformBackendLoaderTest.
+# One source, three variants (matching / mismatched-ABI / missing-entrypoint),
+# each emitted as librialtoplatform-<variant>.so in its own directory so the
+# loader's real dlopen / dlsym / version-check path is exercised end to end.
+# ---------------------------------------------------------------------------
+set(_platform_interface_dir ${CMAKE_SOURCE_DIR}/media/server/platform/interface)
+set(_fixture_src platform/fixtures/PlatformBackendFixture.cpp)
+
+add_library(PlatformBackendFixtureMatch SHARED ${_fixture_src})
+add_library(PlatformBackendFixtureMismatch SHARED ${_fixture_src})
+add_library(PlatformBackendFixtureNoSym SHARED ${_fixture_src})
+
+target_compile_definitions(PlatformBackendFixtureMismatch PRIVATE FIXTURE_MISMATCH)
+target_compile_definitions(PlatformBackendFixtureNoSym PRIVATE FIXTURE_OMIT_VERSION)
+
+foreach(_fx PlatformBackendFixtureMatch PlatformBackendFixtureMismatch PlatformBackendFixtureNoSym)
+    target_include_directories(${_fx} PRIVATE ${_platform_interface_dir})
+    set_target_properties(${_fx} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endforeach()
+
+set_target_properties(PlatformBackendFixtureMatch PROPERTIES
+    OUTPUT_NAME rialtoplatform-match
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fixtures/match)
+set_target_properties(PlatformBackendFixtureMismatch PROPERTIES
+    OUTPUT_NAME rialtoplatform-mismatch
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fixtures/mismatch)
+set_target_properties(PlatformBackendFixtureNoSym PROPERTIES
+    OUTPUT_NAME rialtoplatform-nosym
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fixtures/nosym)
+
+# An empty directory so the "no vendor object present" scenario is deterministic.
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fixtures/empty)
+
+add_dependencies(RialtoServerGstPlayerUnitTests
+    PlatformBackendFixtureMatch PlatformBackendFixtureMismatch PlatformBackendFixtureNoSym)
+
+target_compile_definitions(RialtoServerGstPlayerUnitTests PRIVATE
+    FIXTURE_MATCH_PATH="$<TARGET_FILE:PlatformBackendFixtureMatch>"
+    FIXTURE_MISMATCH_PATH="$<TARGET_FILE:PlatformBackendFixtureMismatch>"
+    FIXTURE_NOSYM_PATH="$<TARGET_FILE:PlatformBackendFixtureNoSym>"
+    FIXTURE_MATCH_DIR="$<TARGET_FILE_DIR:PlatformBackendFixtureMatch>"
+    FIXTURE_EMPTY_DIR="${CMAKE_CURRENT_BINARY_DIR}/fixtures/empty")

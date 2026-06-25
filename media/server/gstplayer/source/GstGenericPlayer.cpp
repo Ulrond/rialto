@@ -32,6 +32,7 @@
 #include "IGstTextTrackSinkFactory.h"
 #include "IMediaPipeline.h"
 #include "ITimer.h"
+#include "PlatformBackendLoader.h"
 #include "RialtoServerLogging.h"
 #include "TypeConverters.h"
 #include "Utils.h"
@@ -126,12 +127,12 @@ std::unique_ptr<IGstGenericPlayer> GstGenericPlayerFactory::createGstGenericPlay
             throw std::runtime_error("Cannot create RdkGstreamerUtilsWrapper");
         }
 
-        // Create the SoC platform backend via the versioned loader ABI. The core names
-        // no SoC: rialtoCreatePlatformBackend() is resolved from the linked platform
-        // backend today and will be dlopen()'d from a per-SoC .so in a later step.
+        // Acquire the SoC platform backend through the loader: it dlopen()s a per-SoC
+        // .so (version-checked against kPlatformBackendAbiVersion) and falls back to the
+        // built-in reference backend when none is present. The core names no SoC; the
+        // GstGenericPlayer constructor's platformBackend parameter stays the test seam.
         PlatformHostContext platformHostContext{gstWrapper, glibWrapper};
-        std::shared_ptr<IPlatformBackend> platformBackend{rialtoCreatePlatformBackend(&platformHostContext),
-                                                          &rialtoDestroyPlatformBackend};
+        std::shared_ptr<IPlatformBackend> platformBackend{PlatformBackendLoader{}.load(platformHostContext)};
 
         gstPlayer = std::make_unique<
             GstGenericPlayer>(client, decryptionService, type, videoRequirements, isLive, gstWrapper, glibWrapper,

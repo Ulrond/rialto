@@ -36,37 +36,9 @@ GstElement *LinuxPlatformBackend::createAudioSink(const std::string &name)
 {
     if (!m_gstWrapper)
         return nullptr;
-
-    // Transitional SoC sink selection. The amlhalasink (Llama) and rtkaudiosink
-    // (XiOne) branches belong in the per-SoC backend .so — the "SoC lower level" —
-    // and will lift out of here when the dlopen loader lands, leaving the reference
-    // Linux backend with only the autoaudiosink path. They live here for now so the
-    // engine names no SoC while vendor hardware keeps its sink (no regression).
-    GstRegistry *reg = m_gstWrapper->gstRegistryGet();
-    if (!reg)
-        return nullptr;
-
-    GstPluginFeature *feature = nullptr;
-    if (nullptr != (feature = m_gstWrapper->gstRegistryLookupFeature(reg, "amlhalasink")))
-    {
-        GstElement *sink = m_gstWrapper->gstElementFactoryMake("amlhalasink", name.c_str());
-        if (sink && m_glibWrapper)
-            m_glibWrapper->gObjectSet(G_OBJECT(sink), "direct-mode", FALSE, nullptr);
-        m_gstWrapper->gstObjectUnref(feature);
-        return sink;
-    }
-    else if (nullptr != (feature = m_gstWrapper->gstRegistryLookupFeature(reg, "rtkaudiosink")))
-    {
-        GstElement *sink = m_gstWrapper->gstElementFactoryMake("rtkaudiosink", name.c_str());
-        if (sink && m_glibWrapper)
-        {
-            m_glibWrapper->gObjectSet(G_OBJECT(sink), "media-tunnel", FALSE, nullptr);
-            m_glibWrapper->gObjectSet(G_OBJECT(sink), "audio-service", TRUE, nullptr);
-        }
-        m_gstWrapper->gstObjectUnref(feature);
-        return sink;
-    }
-
+    // The reference backend names no SoC: it returns only the generic autoaudiosink.
+    // Vendor sink selection (amlhalasink / rtkaudiosink) lives in a per-SoC .so loaded
+    // by PlatformBackendLoader over the versioned IPlatformBackend ABI.
     return m_gstWrapper->gstElementFactoryMake("autoaudiosink", name.c_str());
 }
 
@@ -74,8 +46,9 @@ GstElement *LinuxPlatformBackend::createVideoSink(const std::string &name, uint3
 {
     if (!m_gstWrapper)
         return nullptr;
-    // The Linux reference sink is plane-agnostic; videoId is honoured by device backends
-    // (setWesterosSinkVideoID) where the vendor sink binds to a hardware plane.
+    // The reference backend is plane-agnostic and names no SoC: it returns only the
+    // generic autovideosink. The plane-bound vendor sink (e.g. westerossink via
+    // setWesterosSinkVideoID) lives in a per-SoC .so.
     (void)videoId;
     return m_gstWrapper->gstElementFactoryMake("autovideosink", name.c_str());
 }

@@ -73,16 +73,11 @@ TEST_F(RialtoServerCreateGstWebAudioPlayerTest, FactoryCreatesObject)
         .WillOnce(Return(true));
     expectCreatePipeline();
     expectInitAppSrc();
-    // The real factory builds the real (compiled-in) LinuxPlatformBackend, which runs the
-    // SoC probe ladder on the injected wrapper mocks. With amlhalasink present it makes that
-    // sink and applies its config — the ladder now lives in the backend, not the engine.
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("amlhalasink"), StrEq("webaudiosink")))
+    // The real factory builds the real (compiled-in) reference LinuxPlatformBackend through
+    // the loader (no vendor .so present). It names no SoC: createAudioSink returns
+    // autoaudiosink with no registry probing.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autoaudiosink"), StrEq("webaudiosink")))
         .WillOnce(Return(&m_sink));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("direct-mode")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
     expectLinkElements();
     EXPECT_CALL(*m_gstWrapperMock, gstPipelineGetBus(GST_PIPELINE(&m_pipeline)))
         .WillOnce(Invoke(

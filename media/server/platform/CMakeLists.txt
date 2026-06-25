@@ -45,4 +45,6 @@ target_include_directories(rialto-platform-linux PRIVATE
 
 target_link_libraries(rialto-platform-linux PRIVATE ${GST_LIBRARIES})
 
-set_target_properties(rialto-platform-linux PROPERTIES OUTPUT_NAME rialto-platform-linux)
+# Emitted as librialtoplatform-linux.so so the loader's librialtoplatform-*.so discovery
+# finds it when this reference backend is shipped as a vendor object (override path).
+set_target_properties(rialto-platform-linux PROPERTIES OUTPUT_NAME rialtoplatform-linux)

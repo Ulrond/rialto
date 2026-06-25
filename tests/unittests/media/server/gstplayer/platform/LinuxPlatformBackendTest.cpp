@@ -37,8 +37,6 @@ protected:
     std::shared_ptr<StrictMock<GlibWrapperMock>> m_glibWrapperMock{std::make_shared<StrictMock<GlibWrapperMock>>()};
     LinuxPlatformBackend m_sut{PlatformHostContext{m_gstWrapperMock, m_glibWrapperMock}};
 
-    GstRegistry m_reg{};
-    GstObject m_feature{};
     GstElement m_sink{};
 };
 
@@ -48,48 +46,11 @@ TEST_F(LinuxPlatformBackendTest, PlatformNameIsLinux)
 }
 
 /**
- * Transitional SoC ladder coverage (relocated from the engine): amlhalasink wins the probe and is
- * configured for the Llama platform.
+ * The reference backend names no SoC: it returns autoaudiosink and performs no registry
+ * probing for vendor names. The StrictMock guarantees no gstRegistryGet/lookup occurs.
  */
-TEST_F(LinuxPlatformBackendTest, CreateAudioSinkUsesAmlhalasinkWhenPresent)
+TEST_F(LinuxPlatformBackendTest, CreateAudioSinkReturnsAutoaudiosinkWithNoSocProbing)
 {
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("amlhalasink"), StrEq("webaudiosink")))
-        .WillOnce(Return(&m_sink));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("direct-mode")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
-
-    EXPECT_EQ(m_sut.createAudioSink("webaudiosink"), &m_sink);
-}
-
-/**
- * rtkaudiosink wins the probe when amlhalasink is absent and is configured for the XiOne platform.
- */
-TEST_F(LinuxPlatformBackendTest, CreateAudioSinkUsesRtkaudiosinkWhenPresent)
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink"))).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("rtkaudiosink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("rtkaudiosink"), StrEq("webaudiosink")))
-        .WillOnce(Return(&m_sink));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("media-tunnel")));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_sink), StrEq("audio-service")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
-
-    EXPECT_EQ(m_sut.createAudioSink("webaudiosink"), &m_sink);
-}
-
-/**
- * With no vendor sink registered, the reference backend falls back to autoaudiosink.
- */
-TEST_F(LinuxPlatformBackendTest, CreateAudioSinkFallsBackToAutoaudiosink)
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink"))).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("rtkaudiosink"))).WillOnce(Return(nullptr));
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autoaudiosink"), StrEq("webaudiosink")))
         .WillOnce(Return(&m_sink));
 
@@ -97,37 +58,13 @@ TEST_F(LinuxPlatformBackendTest, CreateAudioSinkFallsBackToAutoaudiosink)
 }
 
 /**
- * If the registry is unavailable the backend cannot select a sink and returns nullptr.
+ * The reference backend is plane-agnostic: it returns autovideosink and accepts (but
+ * ignores) the videoId, performing no SoC-specific plane binding.
  */
-TEST_F(LinuxPlatformBackendTest, CreateAudioSinkReturnsNullWhenRegistryUnavailable)
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(nullptr));
-
-    EXPECT_EQ(m_sut.createAudioSink("webaudiosink"), nullptr);
-}
-
-/**
- * amlhalasink is selected but its element creation fails; the feature ref is still released and the
- * backend returns nullptr.
- */
-TEST_F(LinuxPlatformBackendTest, CreateAudioSinkReturnsNullWhenAmlhalasinkMakeFails)
-{
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("amlhalasink"), StrEq("webaudiosink")))
-        .WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
-
-    EXPECT_EQ(m_sut.createAudioSink("webaudiosink"), nullptr);
-}
-
-TEST_F(LinuxPlatformBackendTest, CreateVideoSinkUsesAutovideosink)
+TEST_F(LinuxPlatformBackendTest, CreateVideoSinkReturnsAutovideosink)
 {
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autovideosink"), StrEq("videosink")))
         .WillOnce(Return(&m_sink));
 
-    // The reference backend is plane-agnostic: the videoId is accepted but autovideosink carries
-    // no setWesterosSinkVideoID, so no extra configuration is expected.
     EXPECT_EQ(m_sut.createVideoSink("videosink", 1), &m_sink);
 }
