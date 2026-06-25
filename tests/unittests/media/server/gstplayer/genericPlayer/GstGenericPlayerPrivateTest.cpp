@@ -68,8 +68,6 @@ const std::string kCodecDataStr{"test"};
 const std::shared_ptr<firebolt::rialto::CodecData> kCodecDataWithString{std::make_shared<firebolt::rialto::CodecData>(
     firebolt::rialto::CodecData{std::vector<std::uint8_t>{kCodecDataStr.begin(), kCodecDataStr.end()},
                                 firebolt::rialto::CodecDataType::STRING})};
-const std::string kAutoVideoSinkTypeName{"GstAutoVideoSink"};
-const std::string kAutoAudioSinkTypeName{"GstAutoAudioSink"};
 constexpr bool kResetTime{true};
 const std::string kImmediateOutputStr{"immediate-output"};
 const std::string kLowLatencyStr{"low-latency"};
@@ -199,18 +197,6 @@ protected:
         EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).Times(2).WillRepeatedly(Return(GST_ITERATOR_DONE));
         EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_)).Times(2);
         EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it)).Times(2);
-    }
-
-    GstElement *setAutoVideoSinkChild()
-    {
-        modifyContext([&](GenericPlayerContext &context) { context.autoVideoChildSink = &m_element; });
-        return &m_element;
-    }
-
-    GstElement *setAutoAudioSinkChild()
-    {
-        modifyContext([&](GenericPlayerContext &context) { context.autoAudioChildSink = &m_element; });
-        return &m_element;
     }
 
     GenericPlayerContext *getPlayerContext()
@@ -366,26 +352,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetVideoRectangle)
     EXPECT_TRUE(m_sut->setVideoSinkRectangle());
 }
 
-TEST_F(GstGenericPlayerPrivateTest, shouldSetVideoRectangleAutoVideoSink)
-{
-    GstElement *autoVideoSinkChild = setAutoVideoSinkChild();
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kVideoSinkStr), _))
-        .WillOnce(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = m_realElement;
-            }));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_realElement)))
-        .WillOnce(Return(kAutoVideoSinkTypeName.c_str()));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("rectangle"))).WillOnce(Return(&m_rectangleSpec));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(autoVideoSinkChild, StrEq("rectangle")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(GST_OBJECT(autoVideoSinkChild))).WillOnce(Return(autoVideoSinkChild));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_OBJECT(autoVideoSinkChild)));
-    EXPECT_TRUE(m_sut->setVideoSinkRectangle());
-}
-
 TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetImmediateOutputIfSinkIsNull)
 {
     modifyContext([&](GenericPlayerContext &context) { context.pendingImmediateOutputForVideo = true; });
@@ -453,28 +419,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetLowLatency)
 
     expectSetProperty(m_glibWrapperMock, m_gstWrapperMock, m_realElement, kLowLatencyStr, true);
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement)).Times(1);
-    EXPECT_TRUE(m_sut->setLowLatency());
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldSetLowLatencyAutoAudioSink)
-{
-    modifyContext([&](GenericPlayerContext &context) { context.pendingLowLatency = true; });
-
-    GstElement *autoAudioSinkChild = setAutoAudioSinkChild();
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _))
-        .WillOnce(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = m_realElement;
-            }));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_realElement)))
-        .WillOnce(Return(kAutoAudioSinkTypeName.c_str()));
-
-    expectSetProperty(m_glibWrapperMock, m_gstWrapperMock, autoAudioSinkChild, kLowLatencyStr, true);
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(GST_OBJECT(autoAudioSinkChild))).WillOnce(Return(autoAudioSinkChild));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_realElement));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(autoAudioSinkChild));
     EXPECT_TRUE(m_sut->setLowLatency());
 }
 
@@ -1886,144 +1830,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldUpdatePlaybackGroup)
     m_sut->updatePlaybackGroup(&typefind, &caps);
 }
 
-TEST_F(GstGenericPlayerPrivateTest, shouldAddAutoVideoSinkChildSink)
-{
-    const GenericPlayerContext *context = getPlayerContext();
-
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-
-    m_sut->addAutoVideoSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoVideoChildSink, m_realElement);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldAddAutoAudioSinkChildSink)
-{
-    const GenericPlayerContext *context = getPlayerContext();
-
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-
-    m_sut->addAutoAudioSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoAudioChildSink, m_realElement);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldNotAddAutoVideoSinkChildIfNotASink)
-{
-    const GenericPlayerContext *context = getPlayerContext();
-
-    m_sut->addAutoVideoSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoVideoChildSink, nullptr);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldNotAddAutoAudioSinkChildIfNotASink)
-{
-    const GenericPlayerContext *context = getPlayerContext();
-
-    m_sut->addAutoAudioSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoAudioChildSink, nullptr);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldAddAutoVideoSinkChildAndOverwrite)
-{
-    GenericPlayerContext *context = getPlayerContext();
-
-    GstElement *realElement2 = initRealElement();
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-    GST_OBJECT_FLAG_SET(GST_OBJECT(realElement2), GST_ELEMENT_FLAG_SINK);
-    context->autoVideoChildSink = m_realElement;
-
-    m_sut->addAutoVideoSinkChild(G_OBJECT(realElement2));
-    EXPECT_EQ(context->autoVideoChildSink, realElement2);
-
-    gst_object_unref(realElement2);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldAddAutoAudioSinkChildAndOverwrite)
-{
-    GenericPlayerContext *context = getPlayerContext();
-
-    GstElement *realElement2 = initRealElement();
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-    GST_OBJECT_FLAG_SET(GST_OBJECT(realElement2), GST_ELEMENT_FLAG_SINK);
-    context->autoAudioChildSink = m_realElement;
-
-    m_sut->addAutoAudioSinkChild(G_OBJECT(realElement2));
-    EXPECT_EQ(context->autoAudioChildSink, realElement2);
-
-    gst_object_unref(realElement2);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldRemoveAutoVideoSinkChildSink)
-{
-    GenericPlayerContext *context = getPlayerContext();
-
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-    context->autoVideoChildSink = m_realElement;
-
-    m_sut->removeAutoVideoSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoVideoChildSink, nullptr);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldRemoveAutoAudioSinkChildSink)
-{
-    GenericPlayerContext *context = getPlayerContext();
-
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-    context->autoAudioChildSink = m_realElement;
-
-    m_sut->removeAutoAudioSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoAudioChildSink, nullptr);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldNotRemoveAutoVideoSinkChildIfDifferentSink)
-{
-    GenericPlayerContext *context = getPlayerContext();
-
-    GstElement *realElement2 = initRealElement();
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-    GST_OBJECT_FLAG_SET(GST_OBJECT(realElement2), GST_ELEMENT_FLAG_SINK);
-    context->autoVideoChildSink = m_realElement;
-
-    m_sut->removeAutoVideoSinkChild(G_OBJECT(realElement2));
-    EXPECT_EQ(context->autoVideoChildSink, m_realElement);
-
-    gst_object_unref(realElement2);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldNotRemoveAutoAudioSinkChildIfDifferentSink)
-{
-    GenericPlayerContext *context = getPlayerContext();
-
-    GstElement *realElement2 = initRealElement();
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-    GST_OBJECT_FLAG_SET(GST_OBJECT(realElement2), GST_ELEMENT_FLAG_SINK);
-    context->autoAudioChildSink = m_realElement;
-
-    m_sut->removeAutoAudioSinkChild(G_OBJECT(realElement2));
-    EXPECT_EQ(context->autoAudioChildSink, m_realElement);
-
-    gst_object_unref(realElement2);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldNotRemoveAutoVideoSinkChildIfNotAdded)
-{
-    const GenericPlayerContext *context = getPlayerContext();
-
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-
-    m_sut->removeAutoVideoSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoVideoChildSink, nullptr);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldNotRemoveAutoAudioSinkChildIfNotAdded)
-{
-    const GenericPlayerContext *context = getPlayerContext();
-
-    GST_OBJECT_FLAG_SET(GST_OBJECT(m_realElement), GST_ELEMENT_FLAG_SINK);
-
-    m_sut->removeAutoAudioSinkChild(G_OBJECT(m_realElement));
-    EXPECT_EQ(context->autoAudioChildSink, nullptr);
-}
-
 TEST_F(GstGenericPlayerPrivateTest, shouldScheduleAllSourcesAttached)
 {
     std::unique_ptr<IPlayerTask> task{std::make_unique<StrictMock<PlayerTaskMock>>()};
@@ -2123,7 +1929,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachMpegAudioSource)
         .WillOnce(Invoke([&](gpointer object, const gchar *first_property_name, void *element)
                          { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(fakeSink))).WillOnce(Return(kElementTypeName.c_str()));
     EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("fakesink"), StrEq("amlhalasink"))).WillOnce(Return(FALSE));
     EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
                 performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
@@ -2269,7 +2074,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachEac3AudioSource)
         .WillOnce(Invoke([&](gpointer object, const gchar *first_property_name, void *element)
                          { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(fakeSink))).WillOnce(Return(kElementTypeName.c_str()));
     EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("amlhalasink"))).WillOnce(Return(FALSE));
     EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
                 performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
@@ -2314,7 +2118,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachRawAudioSource)
         .WillOnce(Invoke([&](gpointer object, const gchar *first_property_name, void *element)
                          { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(fakeSink))).WillOnce(Return(kElementTypeName.c_str()));
     EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("amlhalasink"))).WillOnce(Return(FALSE));
     EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
                 performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
@@ -2366,8 +2169,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachAmlhalasinkAudioSourceNoCodecS
         .WillOnce(Invoke([&](gpointer, const gchar *, void *element)
                          { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    // getSinkChildIfAutoAudioSink
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(fakeSink))).WillOnce(Return(kElementTypeName.c_str()));
     // amlhalasink path
     EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("amlhalasink0"), StrEq("amlhalasink"))).WillOnce(Return(TRUE));
     // performAudioTrackCodecChannelSwitch (AAC->AAC, no codec switch):
@@ -2461,8 +2262,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachAmlhalasinkAudioSourceWithFirs
         .WillOnce(Invoke([&](gpointer, const gchar *, void *element)
                          { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    // getSinkChildIfAutoAudioSink
-    EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(fakeSink))).WillOnce(Return(kElementTypeName.c_str()));
     // amlhalasink path
     EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("amlhalasink1"), StrEq("amlhalasink"))).WillOnce(Return(TRUE));
     // performAudioTrackCodecChannelSwitch (EAC3->AAC, codec switch):

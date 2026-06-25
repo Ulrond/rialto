@@ -21,7 +21,6 @@
 #include "tasks/generic/AttachSamples.h"
 #include "tasks/generic/AttachSource.h"
 #include "tasks/generic/CheckAudioUnderflow.h"
-#include "tasks/generic/DeepElementAdded.h"
 #include "tasks/generic/EnoughData.h"
 #include "tasks/generic/Eos.h"
 #include "tasks/generic/FinishSetupSource.h"
@@ -52,8 +51,6 @@
 #include "tasks/generic/SetVideoGeometry.h"
 #include "tasks/generic/SetVolume.h"
 #include "tasks/generic/SetupAudioDecoder.h"
-#include "tasks/generic/SetupElement.h"
-#include "tasks/generic/SetupSource.h"
 #include "tasks/generic/SetupVideoParser.h"
 #include "tasks/generic/Shutdown.h"
 #include "tasks/generic/Stop.h"
@@ -87,15 +84,6 @@ GenericPlayerTaskFactory::createAttachSource(GenericPlayerContext &context, IGst
 {
     return std::make_unique<tasks::generic::AttachSource>(context, m_gstWrapper, m_glibWrapper,
                                                           m_gstTextTrackSinkFactory, player, source);
-}
-
-std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createDeepElementAdded(GenericPlayerContext &context,
-                                                                              IGstGenericPlayerPrivate &player,
-                                                                              GstBin *pipeline, GstBin *bin,
-                                                                              GstElement *element) const
-{
-    return std::make_unique<tasks::generic::DeepElementAdded>(context, player, m_gstWrapper, m_glibWrapper, pipeline,
-                                                              bin, element);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createEnoughData(GenericPlayerContext &context, GstAppSrc *src) const
@@ -174,13 +162,6 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetPosition(Generic
     return std::make_unique<tasks::generic::SetPosition>(context, player, m_client, m_gstWrapper, position);
 }
 
-std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupElement(GenericPlayerContext &context,
-                                                                          IGstGenericPlayerPrivate &player,
-                                                                          GstElement *element) const
-{
-    return std::make_unique<tasks::generic::SetupElement>(context, m_gstWrapper, m_glibWrapper, player, element);
-}
-
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupAudioDecoder(GenericPlayerContext &context,
                                                                               IGstGenericPlayerPrivate &player) const
 {
@@ -191,13 +172,6 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupVideoParser(Ge
                                                                               IGstGenericPlayerPrivate &player) const
 {
     return std::make_unique<tasks::generic::SetupVideoParser>(context, player);
-}
-
-std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetupSource(GenericPlayerContext &context,
-                                                                         IGstGenericPlayerPrivate &player,
-                                                                         GstElement *source) const
-{
-    return std::make_unique<tasks::generic::SetupSource>(context, player, source);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetVideoGeometry(GenericPlayerContext &context,

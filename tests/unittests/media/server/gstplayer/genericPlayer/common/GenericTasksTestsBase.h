@@ -74,54 +74,6 @@ protected:
     void setContextStreamInfoEmpty();
     void setContextSetupSourceFinished();
 
-    // SetupElement test methods
-    void shouldSetupVideoSinkElementOnly();
-    void shouldSetupVideoDecoderElementOnly();
-    void shouldSetupVideoDecoderElementWithFirstVideoFrameCallback();
-    void shouldSetupVideoElementWithPendingGeometry();
-    void shouldSetupVideoElementWithPendingImmediateOutput();
-    void shouldSetupAudioSinkElementWithPendingLowLatency();
-    void shouldSetupAudioSinkElementWithPendingSync();
-    void shouldSetupAudioDecoderElementWithPendingSyncOff();
-    void shouldSetupAudioDecoderElementWithPendingStreamSyncMode();
-    void shouldSetupVideoParserElementWithPendingStreamSyncMode();
-    void shouldSetupAudioDecoderElementWithPendingBufferingLimit();
-    void shouldSetupAudioDecoderElementWithIsLiveParameter();
-    void shouldSetupVideoSinkElementWithPendingRenderFrame();
-    void shouldSetupVideoSinkElementWithPendingShowVideoWindow();
-    void shouldSetupAudioElementAmlhalasinkWhenNoVideo();
-    void shouldSetupAudioElementAmlhalasinkWhenVideoExists();
-    void shouldSetupAudioElementBrcmAudioSink();
-    void shouldSetupVideoElementAutoVideoSink();
-    void shouldSetupAudioElementAutoAudioSink();
-    void shouldSetupVideoElementAutoVideoSinkWithMultipleChildren();
-    void shouldSetupAudioElementAutoAudioSinkWithMultipleChildren();
-    void shouldSetupAudioSinkElementOnly();
-    void shouldSetupAudioDecoderElementOnly();
-    void shouldSetVideoUnderflowCallback();
-    void shouldSetFirstVideoFrameCallback();
-    void shouldSetupBaseParse();
-    void triggerSetupElement();
-    void triggerVideoUnderflowCallback();
-    void triggerFirstVideoFrameCallback();
-    void shouldSetAudioUnderflowCallback();
-    void triggerAudioUnderflowCallback();
-    void shouldAddFirstAutoVideoSinkChild();
-    void shouldAddFirstAutoAudioSinkChild();
-    void shouldNotAddAutoVideoSinkChild();
-    void shouldNotAddAutoAudioSinkChild();
-    void shouldAddAutoVideoSinkChildCallback();
-    void shouldAddAutoAudioSinkChildCallback();
-    void triggerAutoVideoSinkChildAddedCallback();
-    void triggerAutoAudioSinkChildAddedCallback();
-    void shouldRemoveAutoVideoSinkChildCallback();
-    void shouldRemoveAutoAudioSinkChildCallback();
-    void triggerAutoVideoSinkChildRemovedCallback();
-    void triggerAutoAudioSinkChildRemovedCallback();
-    void shouldSetupTextTrackSink();
-    void shouldSetupVideoDecoderForTextTrack();
-    void shouldSetupVideoDecoderForTextTrackWesterosSinkWithDecoder();
-    void shouldSetupVideoDecoderForTextTrackWesterosSinkWithoutDecoder();
 
     // SetVideoGeometry test methods
     void setPipelineToNull();
@@ -129,10 +81,6 @@ protected:
     void shouldSetVideoGeometry();
     void triggerSetVideoGeometrySuccess();
 
-    // SetupSource test methods
-    void setAllSourcesAttached();
-    void shouldScheduleAllSourcesAttached();
-    void triggerSetupSource();
 
     // SetVolume test methods
     void shouldSetGstVolume();
@@ -204,27 +152,6 @@ protected:
     void shouldNotifyAudioUnderflow();
     void triggerCheckAudioUnderflow();
 
-    // DeepElementAdded test methods
-    void shouldNotRegisterCallbackWhenPtrsAreNotEqual();
-    void constructDeepElementAdded();
-    void shouldNotRegisterCallbackWhenElementIsNull();
-    void shouldNotRegisterCallbackWhenElementNameIsNotTypefind();
-    void shouldRegisterCallbackForTypefindElement();
-    void shouldUpdatePlaybackGroupWhenCallbackIsCalled();
-    void shouldSetTypefindElement();
-    void triggerDeepElementAdded();
-    void checkTypefindPlaybackGroupAdded();
-    void checkPipelinePlaybackGroupAdded();
-    void shouldSetParseElement();
-    void checkParsePlaybackGroupAdded();
-    void shouldSetDecoderElement();
-    void checkDecoderPlaybackGroupAdded();
-    void shouldSetGenericElement();
-    void shouldSetAudioSinkElement();
-    void shouldHaveNullParentSink();
-    void shouldHaveNonBinParentSink();
-    void shouldHaveBinParentSink();
-    void checkAudioSinkPlaybackGroupAdded();
 
     // UpdatePlaybackGroup test methods
     void triggerUpdatePlaybackGroupNoCaps();
@@ -441,17 +368,6 @@ protected:
     void triggerSwitchMpegSource();
 
 private:
-    // SetupElement helper methods
-    void expectVideoUnderflowSignalConnection();
-    void expectFirstVideoFrameSignalConnection();
-    void expectAudioUnderflowSignalConnection();
-    void expectSetupVideoSinkElement();
-    void expectSetupVideoDecoderElement();
-    void expectSetupVideoDecoderElementWithFirstVideoFrameCallback();
-    void expectSetupAudioSinkElement();
-    void expectSetupAudioDecoderElement();
-    void expectSetupVideoParserElement();
-    void expectSetupBaseParseElement();
 
     // AttachSource helper methods
     void expectSetGenericVideoCaps();
