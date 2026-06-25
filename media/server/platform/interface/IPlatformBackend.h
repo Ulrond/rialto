@@ -115,7 +115,7 @@ protected:
 } // namespace firebolt::rialto::server
 
 /*
- * Loader ABI — the core dlopen()s librialto-platform-<soc>.so and resolves these.
+ * Loader ABI — the core dlopen()s librialtoplatform-<soc>.so and resolves these.
  * extern "C" keeps the entrypoints ABI-stable across compilers/SDK versions; the
  * core rejects a backend whose rialtoPlatformBackendAbiVersion() differs from
  * kPlatformBackendAbiVersion. This is the seam that lets the vendor layer upgrade

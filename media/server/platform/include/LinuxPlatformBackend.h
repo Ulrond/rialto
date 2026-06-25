@@ -31,15 +31,13 @@ namespace firebolt::rialto::server
 /**
  * @brief Reference platform backend for Rialto-for-Linux (NATIVE_BUILD).
  *
- * Provides the generic GStreamer sinks — autoaudiosink / autovideosink — that the
- * engine previously selected via its inlined registry-probe fallback. This is the
- * playback proof for the SoC-isolation seam: with no vendor sink present, the core
- * drives playback entirely through IPlatformBackend.
+ * Provides the generic GStreamer sinks — autoaudiosink / autovideosink — and names no
+ * SoC. It is the guaranteed, zero-config fallback PlatformBackendLoader uses when no
+ * vendor backend .so is present, and the playback proof for the SoC-isolation seam:
+ * with no vendor sink, the core drives playback entirely through IPlatformBackend.
  *
- * Transitional: createAudioSink still carries the amlhalasink/rtkaudiosink probe
- * ladder so vendor hardware keeps its sink while the engine names no SoC. Those
- * branches migrate to the per-SoC backend .so when the dlopen loader lands, after
- * which this backend keeps only the autoaudiosink path.
+ * Vendor sink selection (amlhalasink / rtkaudiosink / westerossink) lives in a per-SoC
+ * .so that implements the same versioned ABI, not here.
  */
 class LinuxPlatformBackend : public IPlatformBackend
 {

@@ -95,6 +95,7 @@ add_library(
         source/GstDispatcherThread.cpp
         source/GstGenericPlayer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../platform/source/LinuxPlatformBackend.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../platform/source/PlatformBackendLoader.cpp
         source/GstInitialiser.cpp
         source/GstLogForwarding.cpp
         source/GstProfiler.cpp
@@ -137,6 +138,16 @@ set_property(
 
         )
 
+# Directory the platform-backend loader scans for a vendor librialtoplatform-*.so when
+# RIALTO_PLATFORM_DIR is unset. Overridable at configure time (-DRIALTO_PLATFORM_BACKEND_DIR=...).
+if(NOT DEFINED RIALTO_PLATFORM_BACKEND_DIR)
+        set(RIALTO_PLATFORM_BACKEND_DIR "/usr/lib/rialto/platform")
+endif()
+target_compile_definitions(RialtoServerGstPlayer
+        PRIVATE
+        RIALTO_DEFAULT_PLATFORM_BACKEND_DIR="${RIALTO_PLATFORM_BACKEND_DIR}"
+        )
+
 target_link_libraries(
         RialtoServerGstPlayer
 
@@ -147,4 +158,5 @@ target_link_libraries(
         RialtoCommon
         RialtoPlayerCommon
         ${GStreamerApp_LIBRARIES}
+        ${CMAKE_DL_LIBS}
         )

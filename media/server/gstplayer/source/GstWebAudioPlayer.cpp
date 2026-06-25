@@ -19,6 +19,7 @@
 
 #include "GstWebAudioPlayer.h"
 #include "GstDispatcherThread.h"
+#include "PlatformBackendLoader.h"
 #include "RialtoServerLogging.h"
 #include "WorkerThread.h"
 #include "tasks/webAudio/WebAudioPlayerTaskFactory.h"
@@ -73,12 +74,11 @@ std::unique_ptr<IGstWebAudioPlayer> GstWebAudioPlayerFactory::createGstWebAudioP
         {
             throw std::runtime_error("Cannot create GlibWrapper");
         }
-        // Create the SoC platform backend via the versioned loader ABI. The core names
-        // no SoC: rialtoCreatePlatformBackend() is resolved from the linked platform
-        // backend today and will be dlopen()'d from a per-SoC .so in a later step.
+        // Acquire the SoC platform backend through the loader: it dlopen()s a per-SoC
+        // .so (version-checked against kPlatformBackendAbiVersion) and falls back to the
+        // built-in reference backend when none is present. The core names no SoC.
         PlatformHostContext platformHostContext{gstWrapper, glibWrapper};
-        std::shared_ptr<IPlatformBackend> platformBackend{rialtoCreatePlatformBackend(&platformHostContext),
-                                                          &rialtoDestroyPlatformBackend};
+        std::shared_ptr<IPlatformBackend> platformBackend{PlatformBackendLoader{}.load(platformHostContext)};
 
         gstPlayer = std::make_unique<GstWebAudioPlayer>(client, priority, gstWrapper, glibWrapper,
                                                         IGstInitialiser::instance(), IGstSrcFactory::getFactory(),
