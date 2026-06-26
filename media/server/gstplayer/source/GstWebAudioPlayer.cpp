@@ -175,8 +175,7 @@ bool GstWebAudioPlayer::initWebAudioPipeline(const uint32_t priority)
     m_glibWrapper->gObjectSet(m_context.source, "format", GST_FORMAT_TIME, nullptr);
 
     // Ask the SoC platform backend to make the audio sink. The backend owns all
-    // SoC-specific element selection (amlhalasink / rtkaudiosink / autoaudiosink);
-    // the engine names no vendor sink.
+    // SoC-specific element selection; the engine names no vendor sink.
     GstElement *sink = m_platformBackend ? m_platformBackend->createAudioSink("webaudiosink") : nullptr;
     if (sink)
     {
