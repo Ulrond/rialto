@@ -37,11 +37,16 @@ namespace firebolt::rialto::server
 /**
  * @brief Versioned platform-backend ABI.
  *
- * The platform backend isolates the SoC-specific media element selection (today
- * a registry-probe ladder inlined in the engine: amlhalasink / rtkaudiosink /
- * westerossink, with autoaudiosink / autovideosink as the Linux fallback) behind
- * a frozen, versioned contract. The engine ("core heart") owns no SoC names; it
- * asks the backend to make the platform's sinks.
+ * The platform backend isolates the SoC-specific media concerns behind a frozen,
+ * versioned contract: element selection (today a registry-probe ladder inlined in
+ * the engine: amlhalasink / rtkaudiosink / westerossink, with autoaudiosink /
+ * autovideosink as the Linux fallback) and SoC capability flags (e.g. whether the
+ * platform is video-master). The engine ("core heart") owns no SoC names; it asks
+ * the backend to make the platform's sinks and to report its capability flags.
+ *
+ * Versioning is additive: v3 grows the seam with capability flags (isVideoMaster)
+ * on top of v2's sink creation. New methods are appended; existing ones are frozen,
+ * so a v2 backend stays valid against v2 cases.
  *
  * The backend is loaded as a separate `.so` via the extern "C" entrypoints below
  * and version-checked, so a vendor layer can be upgraded without rebuilding or
@@ -53,7 +58,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 2;
+constexpr uint32_t kPlatformBackendAbiVersion = 3;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -107,6 +112,18 @@ public:
      * @retval the new sink element, or nullptr on failure.
      */
     virtual GstElement *createVideoSink(const std::string &name, uint32_t videoId) = 0;
+
+    /**
+     * @brief Whether the platform drives playback as video-master (ABI v3).
+     *
+     * A SoC capability flag the engine reports through GstCapabilities. Device backends
+     * answer from their fixed platform knowledge (e.g. an amlhalasink-based audio path is
+     * audio-master, so returns false); the Linux reference backend has no such sink and is
+     * video-master, so returns true. The core names no SoC.
+     *
+     * @retval true if the platform is video-master, false otherwise.
+     */
+    virtual bool isVideoMaster() const = 0;
 
 protected:
     IPlatformBackend() = default;

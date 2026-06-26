@@ -53,6 +53,13 @@ GstElement *LinuxPlatformBackend::createVideoSink(const std::string &name, uint3
     return m_gstWrapper->gstElementFactoryMake("autovideosink", name.c_str());
 }
 
+bool LinuxPlatformBackend::isVideoMaster() const
+{
+    // The reference backend has no amlhalasink-style audio-master sink, so the Linux
+    // platform is video-master. The audio-master vendor cases live in their per-SoC .so.
+    return true;
+}
+
 } // namespace firebolt::rialto::server
 
 /* Loader ABI — resolved by the core's dlopen of this backend's .so. */
