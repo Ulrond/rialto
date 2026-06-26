@@ -313,13 +313,8 @@ protected:
     void checkPlaybackRateSet();
     void checkPlaybackRateDefault();
     void setPipelinePlaying();
-    void shouldSetPlaybackRateAudioSinkNullSuccess();
-    void shouldSetPlaybackRateAudioSinkNullFailure();
-    void shouldSetPlaybackRateAudioSinkOtherThanAmlhala();
-    void shouldFailToSetPlaybackRateAudioSinkOtherThanAmlhala();
-    void shouldSetPlaybackRateAmlhalaAudioSink();
-    void shouldFailToSetPlaybackRateAmlhalaAudioSink();
-    void checkSegmentInfo();
+    void shouldSetPlaybackRateSuccess();
+    void shouldFailToSetPlaybackRate();
 
     // RenderFrame test methods
     void shouldRenderFrame();

@@ -335,6 +335,13 @@ TEST_F(GstGenericPlayerPrivateTest, shouldNotSetVideoRectangleWhenVideoSinkIsNul
     EXPECT_FALSE(m_sut->setVideoSinkRectangle());
 }
 
+TEST_F(GstGenericPlayerPrivateTest, shouldApplyPlaybackRateViaPlatformBackend)
+{
+    modifyContext([&](GenericPlayerContext &context) { context.pipeline = &m_pipeline; });
+    EXPECT_CALL(*m_platformBackendMock, applyPlaybackRate(&m_pipeline, 1.25)).WillOnce(Return(true));
+    EXPECT_TRUE(m_sut->applyPlaybackRate(1.25));
+}
+
 TEST_F(GstGenericPlayerPrivateTest, shouldNotSetVideoRectangleWhenVideoSinkDoesNotHaveRectangleProperty)
 {
     expectGetAVSink(kVideoSinkStr, m_realElement);

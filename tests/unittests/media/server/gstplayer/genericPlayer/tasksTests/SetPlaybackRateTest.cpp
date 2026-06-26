@@ -46,58 +46,20 @@ TEST_F(SetPlaybackRateTest, shouldNotChangePlaybackRateIfPipelineStateIsBelowPla
     checkPlaybackRateDefault();
 }
 
-TEST_F(SetPlaybackRateTest, shouldSetPlaybackRateAudioSinkNull)
+TEST_F(SetPlaybackRateTest, shouldSetPlaybackRate)
 {
     setPipelinePlaying();
-    shouldSetPlaybackRateAudioSinkNullSuccess();
+    shouldSetPlaybackRateSuccess();
     triggerSetPlaybackRate();
     checkNoPendingPlaybackRate();
     checkPlaybackRateSet();
 }
 
-TEST_F(SetPlaybackRateTest, shouldFailToSetPlaybackRateAudioSinkNull)
+TEST_F(SetPlaybackRateTest, shouldFailToSetPlaybackRate)
 {
     setPipelinePlaying();
-    shouldSetPlaybackRateAudioSinkNullFailure();
+    shouldFailToSetPlaybackRate();
     triggerSetPlaybackRate();
     checkNoPendingPlaybackRate();
     checkPlaybackRateDefault();
-}
-
-TEST_F(SetPlaybackRateTest, shouldSetPlaybackRateAudioSinkOtherThanAmlhala)
-{
-    setPipelinePlaying();
-    shouldSetPlaybackRateAudioSinkOtherThanAmlhala();
-    triggerSetPlaybackRate();
-    checkNoPendingPlaybackRate();
-    checkPlaybackRateSet();
-}
-
-TEST_F(SetPlaybackRateTest, shouldFailToSetPlaybackRateAudioSinkOtherThanAmlhala)
-{
-    setPipelinePlaying();
-    shouldFailToSetPlaybackRateAudioSinkOtherThanAmlhala();
-    triggerSetPlaybackRate();
-    checkNoPendingPlaybackRate();
-    checkPlaybackRateDefault();
-}
-
-TEST_F(SetPlaybackRateTest, shouldSetPlaybackRateAmlhalaAudioSink)
-{
-    setPipelinePlaying();
-    shouldSetPlaybackRateAmlhalaAudioSink();
-    triggerSetPlaybackRate();
-    checkNoPendingPlaybackRate();
-    checkPlaybackRateSet();
-    checkSegmentInfo();
-}
-
-TEST_F(SetPlaybackRateTest, shouldFailToSetPlaybackRateAmlhalaAudioSink)
-{
-    setPipelinePlaying();
-    shouldFailToSetPlaybackRateAmlhalaAudioSink();
-    triggerSetPlaybackRate();
-    checkNoPendingPlaybackRate();
-    checkPlaybackRateDefault();
-    checkSegmentInfo();
 }

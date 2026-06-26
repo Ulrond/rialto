@@ -125,6 +125,20 @@ public:
      */
     virtual bool isVideoMaster() const = 0;
 
+    /**
+     * @brief Applies a playback rate change the platform's way (ABI v3).
+     *
+     * Platforms differ in how a rate change is signalled: the Linux reference backend sends a
+     * custom-instant-rate-change event downstream on the pipeline; a vendor backend may instead
+     * send a new-segment event to its audio sink pad. The engine asks the backend to apply the
+     * rate so it names no SoC; the backend uses the host GStreamer wrappers it was given.
+     *
+     * @param[in] pipeline : The live pipeline the rate applies to.
+     * @param[in] rate     : The playback rate to apply.
+     * @retval true if the rate-change event was sent successfully, false otherwise.
+     */
+    virtual bool applyPlaybackRate(GstElement *pipeline, double rate) = 0;
+
 protected:
     IPlatformBackend() = default;
 };

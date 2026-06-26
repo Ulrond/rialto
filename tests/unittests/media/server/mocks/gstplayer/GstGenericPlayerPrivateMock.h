@@ -67,6 +67,7 @@ public:
     MOCK_METHOD(void, stopWorkerThread, (), (override));
     MOCK_METHOD(void, cancelUnderflow, (firebolt::rialto::MediaSourceType mediaSource), (override));
     MOCK_METHOD(void, setPendingPlaybackRate, (), (override));
+    MOCK_METHOD(bool, applyPlaybackRate, (double rate), (override));
     MOCK_METHOD(void, updatePlaybackGroup, (GstElement * typefind, const GstCaps *caps), (override));
     MOCK_METHOD(GstElement *, getSink, (const MediaSourceType &mediaSourceType), (const, override));
 

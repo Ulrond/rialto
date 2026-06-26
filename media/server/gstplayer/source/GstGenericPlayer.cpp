@@ -641,7 +641,7 @@ void GstGenericPlayer::setPlaybackRate(double rate)
 {
     if (m_workerThread)
     {
-        m_workerThread->enqueueTask(m_taskFactory->createSetPlaybackRate(m_context, rate));
+        m_workerThread->enqueueTask(m_taskFactory->createSetPlaybackRate(m_context, *this, rate));
     }
 }
 
@@ -2596,6 +2596,16 @@ void GstGenericPlayer::setPendingPlaybackRate()
 {
     RIALTO_SERVER_LOG_INFO("Setting pending playback rate");
     setPlaybackRate(m_context.pendingPlaybackRate);
+}
+
+bool GstGenericPlayer::applyPlaybackRate(double rate)
+{
+    if (!m_platformBackend)
+    {
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot apply playback rate");
+        return false;
+    }
+    return m_platformBackend->applyPlaybackRate(m_context.pipeline, rate);
 }
 
 void GstGenericPlayer::renderFrame()

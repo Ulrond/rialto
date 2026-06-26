@@ -20,6 +20,11 @@
 #include "LinuxPlatformBackend.h"
 #include <new>
 
+namespace
+{
+const char kCustomInstantRateChangeEventName[] = "custom-instant-rate-change";
+} // namespace
+
 namespace firebolt::rialto::server
 {
 LinuxPlatformBackend::LinuxPlatformBackend(const PlatformHostContext &host)
@@ -58,6 +63,18 @@ bool LinuxPlatformBackend::isVideoMaster() const
     // The reference backend has no amlhalasink-style audio-master sink, so the Linux
     // platform is video-master. The audio-master vendor cases live in their per-SoC .so.
     return true;
+}
+
+bool LinuxPlatformBackend::applyPlaybackRate(GstElement *pipeline, double rate)
+{
+    if (!m_gstWrapper || !pipeline)
+        return false;
+    // The reference path signals the rate as a custom-instant-rate-change event sent
+    // downstream on the pipeline. The sink-pad new-segment variant lives in a per-SoC .so.
+    GstStructure *structure{
+        m_gstWrapper->gstStructureNew(kCustomInstantRateChangeEventName, "rate", G_TYPE_DOUBLE, rate, NULL)};
+    return m_gstWrapper->gstElementSendEvent(pipeline,
+                                             m_gstWrapper->gstEventNewCustom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, structure));
 }
 
 } // namespace firebolt::rialto::server
