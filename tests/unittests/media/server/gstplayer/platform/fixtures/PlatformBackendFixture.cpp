@@ -37,6 +37,8 @@ public:
     const char *platformName() const override { return "fixture"; }
     GstElement *createAudioSink(const std::string &) override { return nullptr; }
     GstElement *createVideoSink(const std::string &, uint32_t) override { return nullptr; }
+    bool isVideoMaster() const override { return true; }
+    bool applyPlaybackRate(GstElement *, double) override { return true; }
 };
 } // namespace
 

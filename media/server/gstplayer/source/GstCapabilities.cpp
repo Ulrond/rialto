@@ -25,6 +25,7 @@
 
 #include "GstCapabilities.h"
 #include "GstMimeMapping.h"
+#include "PlatformBackendLoader.h"
 #include "RialtoServerLogging.h"
 
 namespace
@@ -147,8 +148,15 @@ std::unique_ptr<IGstCapabilities> GstCapabilitiesFactory::createGstCapabilities(
             throw std::runtime_error("Cannot create RdkGstreamerUtilsWrapper");
         }
 
+        // Acquire the SoC platform backend through the loader: it dlopen()s a per-SoC
+        // .so (version-checked against kPlatformBackendAbiVersion) and falls back to the
+        // built-in reference backend when none is present. The core names no SoC; the
+        // GstCapabilities constructor's platformBackend parameter stays the test seam.
+        PlatformHostContext platformHostContext{gstWrapper, glibWrapper};
+        std::shared_ptr<IPlatformBackend> platformBackend{PlatformBackendLoader{}.load(platformHostContext)};
+
         gstCapabilities = std::make_unique<GstCapabilities>(gstWrapper, glibWrapper, rdkGstreamerUtilsWrapper,
-                                                            IGstInitialiser::instance());
+                                                            IGstInitialiser::instance(), platformBackend);
     }
     catch (const std::exception &e)
     {
@@ -162,9 +170,9 @@ GstCapabilities::GstCapabilities(
     const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
     const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
     const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-    const IGstInitialiser &gstInitialiser)
+    const IGstInitialiser &gstInitialiser, const std::shared_ptr<IPlatformBackend> &platformBackend)
     : m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper}, m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper},
-      m_gstInitialiser{gstInitialiser}
+      m_gstInitialiser{gstInitialiser}, m_platformBackend{platformBackend}
 {
     m_initialisationThread = std::thread(
         [this]()
@@ -442,21 +450,14 @@ void GstCapabilities::waitForInitialisation()
 
 bool GstCapabilities::isVideoMaster(bool &isVideoMaster)
 {
-    waitForInitialisation();
-
-    GstRegistry *reg = m_gstWrapper->gstRegistryGet();
-    if (!reg)
+    // The video-master flag is a SoC capability: the platform backend answers it from its
+    // fixed platform knowledge, so the engine names no SoC.
+    if (!m_platformBackend)
     {
-        RIALTO_SERVER_LOG_ERROR("Failed get the gst registry");
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot determine video-master");
         return false;
     }
-    GstPluginFeature *feature{nullptr};
-    isVideoMaster = true;
-    if (nullptr != (feature = m_gstWrapper->gstRegistryLookupFeature(reg, "amlhalasink")))
-    {
-        isVideoMaster = false;
-        m_gstWrapper->gstObjectUnref(feature);
-    }
+    isVideoMaster = m_platformBackend->isVideoMaster();
     return true;
 }
 

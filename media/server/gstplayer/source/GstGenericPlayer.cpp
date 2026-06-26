@@ -641,7 +641,7 @@ void GstGenericPlayer::setPlaybackRate(double rate)
 {
     if (m_workerThread)
     {
-        m_workerThread->enqueueTask(m_taskFactory->createSetPlaybackRate(m_context, rate));
+        m_workerThread->enqueueTask(m_taskFactory->createSetPlaybackRate(m_context, *this, rate));
     }
 }
 
@@ -1766,7 +1766,7 @@ void GstGenericPlayer::pushSampleIfRequired(GstElement *source, const std::strin
         return;
     }
     // GstAppSrc does not replace segment, if it's the same as previous one.
-    // It causes problems with position reporing in amlogic devices, so we need to push
+    // It causes problems with position reporting on some platforms, so we need to push
     // two segments with different reset time value.
     pushAdditionalSegmentIfRequired(source);
 
@@ -1911,6 +1911,10 @@ bool GstGenericPlayer::reattachSource(const std::unique_ptr<IMediaPipeline::Medi
         bool retVal{false};    // Output param. Set to TRUE in rdk_gstreamer_utils function stub
 
         bool result = false;
+        // The live-graph audio codec switch is the rdk-gstreamer-utils convergence point: this SoC
+        // branch picks between the in-Rialto fork of performAudioTrackCodecChannelSwitch and the
+        // external rdk-gstreamer-utils one. It is owned by that surface (RdkGstreamerUtilsWrapper),
+        // not the IPlatformBackend sink/caps/rate seam, so it stays here until the two surfaces merge.
         if (m_glibWrapper->gStrHasPrefix(sinkName.c_str(), "amlhalasink"))
         {
             // due to problems audio codec change in prerolling, temporarily moved the code from rdk gstreamer utils to
@@ -2473,7 +2477,7 @@ bool GstGenericPlayer::setEnableRateCorrection()
     bool result{false};
     if (m_glibWrapper->gObjectClassFindProperty(G_OBJECT_GET_CLASS(decoder), "enable-rate-correction"))
     {
-        RIALTO_SERVER_LOG_INFO("Enabling rate correction for broadcom decoder.");
+        RIALTO_SERVER_LOG_INFO("Enabling rate correction on the decoder.");
         m_glibWrapper->gObjectSet(decoder, "enable-rate-correction", TRUE, nullptr);
         result = true;
     }
@@ -2596,6 +2600,16 @@ void GstGenericPlayer::setPendingPlaybackRate()
 {
     RIALTO_SERVER_LOG_INFO("Setting pending playback rate");
     setPlaybackRate(m_context.pendingPlaybackRate);
+}
+
+bool GstGenericPlayer::applyPlaybackRate(double rate)
+{
+    if (!m_platformBackend)
+    {
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot apply playback rate");
+        return false;
+    }
+    return m_platformBackend->applyPlaybackRate(m_context.pipeline, rate);
 }
 
 void GstGenericPlayer::renderFrame()

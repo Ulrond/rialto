@@ -24,6 +24,7 @@
 #include "IGstCapabilities.h"
 #include "IGstInitialiser.h"
 #include "IGstWrapper.h"
+#include "IPlatformBackend.h"
 #include "IRdkGstreamerUtilsWrapper.h"
 
 #include <condition_variable>
@@ -62,7 +63,7 @@ public:
         const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
         const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
         const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-        const IGstInitialiser &gstInitialiser);
+        const IGstInitialiser &gstInitialiser, const std::shared_ptr<IPlatformBackend> &platformBackend);
     ~GstCapabilities();
 
     GstCapabilities(const GstCapabilities &) = delete;
@@ -156,6 +157,11 @@ private:
     std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> m_glibWrapper;
     std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> m_rdkGstreamerUtilsWrapper;
     const IGstInitialiser &m_gstInitialiser;
+
+    /**
+     * @brief The SoC platform backend; the source of SoC capability flags (e.g. video-master).
+     */
+    std::shared_ptr<IPlatformBackend> m_platformBackend;
     std::thread m_initialisationThread;
     std::mutex m_initialisationMutex;
     std::condition_variable m_initialisationCv;

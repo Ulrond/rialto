@@ -48,6 +48,8 @@ public:
     const char *platformName() const override;
     GstElement *createAudioSink(const std::string &name) override;
     GstElement *createVideoSink(const std::string &name, uint32_t videoId) override;
+    bool isVideoMaster() const override;
+    bool applyPlaybackRate(GstElement *pipeline, double rate) override;
 
 private:
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;

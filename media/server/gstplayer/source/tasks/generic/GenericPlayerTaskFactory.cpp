@@ -150,9 +150,10 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createCheckAudioUnderflow
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetPlaybackRate(GenericPlayerContext &context,
+                                                                             IGstGenericPlayerPrivate &player,
                                                                              double rate) const
 {
-    return std::make_unique<tasks::generic::SetPlaybackRate>(context, m_gstWrapper, m_glibWrapper, rate);
+    return std::make_unique<tasks::generic::SetPlaybackRate>(context, player, rate);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetPosition(GenericPlayerContext &context,

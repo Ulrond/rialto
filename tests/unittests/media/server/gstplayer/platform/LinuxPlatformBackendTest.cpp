@@ -38,6 +38,9 @@ protected:
     LinuxPlatformBackend m_sut{PlatformHostContext{m_gstWrapperMock, m_glibWrapperMock}};
 
     GstElement m_sink{};
+    GstElement m_pipeline{};
+    GstStructure m_structure{};
+    GstEvent m_event{};
 };
 
 TEST_F(LinuxPlatformBackendTest, PlatformNameIsLinux)
@@ -67,4 +70,29 @@ TEST_F(LinuxPlatformBackendTest, CreateVideoSinkReturnsAutovideosink)
         .WillOnce(Return(&m_sink));
 
     EXPECT_EQ(m_sut.createVideoSink("videosink", 1), &m_sink);
+}
+
+/**
+ * The reference backend has no amlhalasink-style audio-master sink, so the Linux platform is
+ * video-master. The audio-master vendor cases live in their per-SoC .so.
+ */
+TEST_F(LinuxPlatformBackendTest, IsVideoMasterReturnsTrue)
+{
+    EXPECT_TRUE(m_sut.isVideoMaster());
+}
+
+/**
+ * The reference backend applies a rate change as a custom-instant-rate-change event sent
+ * downstream on the pipeline; the sink-pad new-segment variant lives in a per-SoC .so.
+ */
+TEST_F(LinuxPlatformBackendTest, ApplyPlaybackRateSendsInstantRateEventOnPipeline)
+{
+    EXPECT_CALL(*m_gstWrapperMock,
+                gstStructureNewDoubleStub(StrEq("custom-instant-rate-change"), StrEq("rate"), G_TYPE_DOUBLE, 1.25))
+        .WillOnce(Return(&m_structure));
+    EXPECT_CALL(*m_gstWrapperMock, gstEventNewCustom(GST_EVENT_CUSTOM_DOWNSTREAM_OOB, &m_structure))
+        .WillOnce(Return(&m_event));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(&m_pipeline, &m_event)).WillOnce(Return(TRUE));
+
+    EXPECT_TRUE(m_sut.applyPlaybackRate(&m_pipeline, 1.25));
 }

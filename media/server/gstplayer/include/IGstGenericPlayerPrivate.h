@@ -259,6 +259,15 @@ public:
     virtual void setPendingPlaybackRate() = 0;
 
     /**
+     * @brief Applies a playback rate change via the platform backend (which names the SoC).
+     *
+     * @param[in] rate : The playback rate to apply.
+     *
+     * @retval true if the rate-change event was sent successfully, false otherwise.
+     */
+    virtual bool applyPlaybackRate(double rate) = 0;
+
+    /**
      * @brief Updates Playback Group in PlayerContext.
      */
     virtual void updatePlaybackGroup(GstElement *typefind, const GstCaps *caps) = 0;

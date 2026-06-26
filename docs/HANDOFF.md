@@ -5,7 +5,103 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-23_
+_Last updated: 2026-06-26 (#6 dlopen-loader **implemented + merged to master `637a11de` and PUSHED to origin/Ulrond**; issue #6 still OPEN — merge subject `(#6)` lacked a closing keyword, needs manual close like #5;
+two new OpenSpec changes written + validated — `rialto-conformance-suite` and `complete-soc-platform-isolation`;
+architecture diagrams added; SoC migration scoped + classified)_
+
+---
+
+## Session update — 2026-06-26
+
+**#6 dlopen platform-backend loader — DONE, merged to `master`, PUSHED to origin/Ulrond.**
+Branch `feature/6-dlopen-platform-backend`; squashed commit `857722a7` + `--no-ff` merge `637a11de` on
+`master`, now **in sync with `origin/master`** (push confirmed 2026-06-26). **Issue #6 CLOSED** (manually,
+2026-06-26 — the merge subject `(#6)` carried no closing keyword, same as #5). `PlatformBackendLoader` (discovery
+`RIALTO_PLATFORM_BACKEND` → single `librialtoplatform-*.so` in `RIALTO_PLATFORM_DIR`/compile-time default →
+in-core reference fallback; real `dlopen`+`dlsym` of the 3 entrypoints; version-check vs
+`kPlatformBackendAbiVersion`; `shared_ptr` deleter = destroy+`dlclose`). `GstGenericPlayer::create` **and**
+`GstWebAudioPlayer::create` now acquire via the loader; `LinuxPlatformBackend` is auto-sinks only (SoC ladder
+removed). New `PlatformBackendLoaderTest` drives **real dlopen** against CMake-built fixture `.so`s
+(match / ABI-mismatch / missing-symbol). Suites green: **servergstplayer 614/614, servermain 471/471**.
+OpenSpec change `dlopen-per-soc-platform-backend` archived.
+
+**Two new OpenSpec changes written + validated (`openspec/changes/`, not yet applied):**
+- **`rialto-conformance-suite`** — a **compliance** suite (new public repo `Ulrond/rialto-conformance`) that
+  proves every Rialto **external** interface/feature is met. CONTENT-DRIVEN (real streams via MSE + native),
+  control plane OPTIONAL. ut-core (`VARIANT=CPP`, L1-L4) + python_raft, x86-first (unblocked by #6). Key
+  decision (user-driven): **mocked gtests are NOT ingested** — they're the white-box dev inner loop; compliance
+  = real external tests only. Capabilities: `conformance-harness`, `interface-conformance-levels`,
+  `content-driven-conformance`, `versioned-abi-certification`.
+- **`complete-soc-platform-isolation`** — finish what #6 started: move the *remaining* genuine SoC code behind
+  the seam (additive `IPlatformBackend` v2→v3) + author per-SoC shim `.so`s, **stability-gated** (no
+  amlogic/realtek/broadcom regression). Capabilities: `soc-concern-coverage`, `per-soc-backend-packages`,
+  `platform-stability-guarantee`. **NOT yet implemented** (next = concern #1 `isVideoMaster`).
+
+**Architecture model nailed down (terminology matters):**
+- **Two EXTERNAL surfaces** (northbound, app's choice, both supported): MSE `rialtomse*sink` (app keeps its own
+  GStreamer pipeline) **and** native `canCreateSession`/`IMediaSession` (app passes data + calls native). The
+  only "surfaces" external users see.
+- **Two INTERNAL plug points** (southbound SoC lower layer, *not* "surfaces"): `IPlatformBackend` `.so`
+  (element create/config/caps/quirks) and `rdk-gstreamer-utils` (live-graph ops via `RdkGstreamerUtilsWrapper`).
+  Goal: collapse to one seam; AIDL HAL subsumes both eventually.
+- **Vendor SoC media code does NOT change.** Sinks + `rdk-gstreamer-utils-<platform>` (already versioned HAL)
+  are untouched; the work is upper-layer + a thin per-SoC shim. Shim placement (Decision 7): per-platform repos
+  mirroring `rdk-gstreamer-utils-<platform>`, co-located per SoC — never the core, never the vendor sink repo;
+  for internal platforms we branch the per-platform HAL repo to **add** the shim, not fix the sink.
+
+**SoC inventory classified (smaller than a grep suggests).** Genuine migrations: `isVideoMaster`
+(`GstCapabilities`) + playback-rate (`SetPlaybackRate`). **Stay in core** (false positives — generic code with
+vendor-named comments): `pushAdditionalSegmentIfRequired` (unconditional) + `enable-rate-correction`
+(property-probed). Sink creation already done (#6).
+
+**Cloned references** (in `external/`, gitignored): `rdk-gstreamer-utils-raspberrypi` (public plug-point-2
+reference, `rdk_gstreamer_utils_soc.cpp` + `halif-versions.h`) and `westeros` (`westerossink` at
+`v4l2/westeros-sink`). Vendor sinks `amlhalasink`/`rtkaudiosink`/`brcmaudiosink` are **proprietary, not public**
+— and not needed (we reuse name+property contracts).
+
+**Docs added** (`external/rialto/docs/`, untracked working docs): `ARCHITECTURE-rialto-overview.md` (5 sections)
++ `diagram-05..10` (`.svg`/`.png`): high-level arch, dlopen layering, dlopen load-decision, requirements
+playbin-vs-explicit, SoC plug points, SoC migration map. `HAL-INTEGRATION-TEST-PLAN.md` renamed →
+`RIALTO-INTEGRATION-TEST-PLAN.md`.
+
+**SoC isolation (concluding the transformation) — IN PROGRESS on `feature/1-soc-platform-isolation`**
+(branched off `master`, under Milestone #1; docs committed here `059ae98c`):
+- **Inventory + classify DONE** (task 1). Genuine seam migrations: **#1 video-master** (`GstCapabilities`)
+  + **#2 playback-rate** (`SetPlaybackRate`). Stay-in-core (relabel only): position quirk
+  (`pushAdditionalSegmentIfRequired`) + decoder rate-correction (`enable-rate-correction`, property-probed).
+  rdk-gstreamer-utils convergence (task 4): codec-switch `amlhalasink` branch (`GstGenericPlayer.cpp:1914`).
+- **Concern #1 video-master — LANDED (`7bb20bb8`).** `IPlatformBackend` grown to **ABI v3** (additive
+  `isVideoMaster()`, `kPlatformBackendAbiVersion`→3); `LinuxPlatformBackend::isVideoMaster()`=true; mock +
+  loader fixture gain the method; `GstCapabilities` acquires a backend via `PlatformBackendLoader` (ctor param
+  = test seam) and delegates `isVideoMaster()`, deleting the inline `amlhalasink` registry probe. Tests inject
+  `PlatformBackendMock`. servergstplayer 614/614, servermain 471/471.
+- **Concern #2 playback-rate — LANDED (`577088ef`).** v3 gains `applyPlaybackRate(pipeline,rate)`; Linux ref
+  sends the custom-instant-rate-change event downstream (sink-pad new-segment variant → per-SoC `.so`).
+  `GstGenericPlayer` exposes `applyPlaybackRate(rate)` on `IGstGenericPlayerPrivate` and delegates to the
+  backend; `SetPlaybackRate` takes the player (not gst/glib wrappers), keeps its pipeline-state gating, deletes
+  the inline `gStrHasPrefix(...,"amlhalasink")` dispatch + audio-sink lookup. 6 dispatch tests → 2 (success/
+  failure); +Linux `applyPlaybackRate`/`isVideoMaster` cases. servergstplayer 613/613, servermain 471/471.
+- **Relabels + grep-clean — LANDED (`1bdea813`).** Stay-in-core generic logic stripped of SoC names: position
+  quirk (`amlogic devices`→`some platforms`), rate-correction log (`broadcom decoder`→`the decoder`),
+  web-audio comment (dropped the amlhalasink/rtkaudiosink/autoaudiosink example list). **Engine grep-clean**
+  now: the ONLY SoC name left in engine code is the live-graph audio **codec switch** (`switchAudioCodec`,
+  `GstGenericPlayer.cpp:1918`), intentionally retained — it's the **rdk-gstreamer-utils convergence (task 4)**,
+  owned by `RdkGstreamerUtilsWrapper::performAudioTrackCodecChannelSwitch` (not reimplementable), coordinates
+  with Beej; marked with an orienting note. Platform-seam interface docs name vendors as legitimate contract
+  examples.
+
+**Engine-side transformation is COMPLETE** (the two genuine seam migrations + relabels; core names no SoC bar
+the documented codec-switch). **Remaining = the "testing it all" phase** (out of this core branch):
+- **Task 4** — rdk-gstreamer-utils convergence (codec switch + audio fade/easing), with Beej's
+  `RdkGstreamerUtilsWrapper` work ([[beej-rdkgstreamerutils-soc-alignment]]).
+- **Task 5** — author per-SoC `.so`s (`librialtoplatform-amlogic/-realtek/-broadcom`) in per-platform repos
+  (Decision 7: never the core), carrying the migrated vendor logic (amlhalasink video-master=false + sink-pad
+  new-segment rate, etc.).
+- **Task 6** — certify each `.so` against the `rialto-conformance` v3 suite; retire inline paths per the
+  stability gate. Then the external-interface suites (`rialto-conformance-suite`).
+
+**Open / next:** merge `feature/1-soc-platform-isolation` → `master` (local; hold push per the fork-push gate),
+then start the testing phase.
 
 ---
 
@@ -23,17 +119,22 @@ _Last updated: 2026-06-23_
   Ulrond/rialto (push+fetch), `upstream` = rdkcentral/rialto (**fetch only — push URL disabled**, see
   [[rialto-fork-commit-identity]]). Commit identity pinned to Ulrond (local git config); never
   gerald.weatherup@sky.uk.
-  Branch state on the fork: **`master` is up to date** — PR Ulrond/rialto#3 (stage 3 + M1 + stage-1,
-  14 commits, all Ulrond) was **merged** (rebase) and local master reset to origin/master.
-  **Active branch: `feature/4-explicit-video-subtitle`** (stage 4, off the merged master) — **4a landed
-  (`f0d21981`)** (explicit video chain builder). A pristine-upstream **git worktree** sits at `external/rialto-upstream`
+  Branch state on the fork: PR Ulrond/rialto#3 (stage 3 + M1 + stage-1, 14 commits, all Ulrond) was
+  **merged** (rebase). **Stage 4 + stage 5 + #8 are now MERGED to local `master`** via a `--no-ff` merge
+  commit (`6ab0d3dd`, authored Ulrond) — `master` is **ahead of `origin/master` by 11** (10 staged
+  commits + the merge commit) and **NOT pushed** (push waits for explicit go). The stack was fully linear,
+  all Ulrond, no conflicts. **Working branch stays `feature/8-explicit-av-appsrc-callbacks`** (tip
+  `bfe9d7ec`, now an ancestor of master), with `feature/5-flip-default-delete-playbin` (`ac00245f`, #5c)
+  and the stage-4 branch likewise merged in. A pristine-upstream **git worktree** sits at
+  `external/rialto-upstream`
   (detached at `upstream/master`, rdkcentral/rialto) — the regression oracle / true-default baseline
   for the `GST_DEBUG_DUMP_DOT_DIR` cross-check (confirmed playbin-only: no `initMsePipelineExplicit`).
   Working docs now live in `external/rialto/docs/` (this file, the plans).
   **Build host: ceres** (80 cores, `ssh ceres` on home LAN) — relocated from hpz4 (4 cores) for faster
   builds; run `claude` natively on ceres. Builds run in a docker via `sc` (see the Build/test section).
-  Roadmap issues open on the fork: #4 stage 4, #5 stage 5,
-  #6 dlopen per-SoC loader, #7 RAFT+ut_core (all under #1 Milestone 1).
+  Roadmap issues on the fork: #4 stage 4 (done), #5 stage 5 (done via 5c), #8 video/subtitle appsrc wiring
+  (done, `bfe9d7ec`) — all three **merged to local master (`6ab0d3dd`), will auto-close on push**; still
+  open: #6 dlopen per-SoC loader, #7 RAFT+ut_core (all under #1 Milestone 1).
 
 Design originates in the spec project; code/evidence ("nails") live in `pipewire_example`
 and flow **back** into the LLDs.
@@ -156,15 +257,30 @@ confirmed** — it is a *possible* future swap, not a committed phase. GStreamer
   (our HAL: decoder `open(secure)` + decoder-bound `IAVBuffer` secureHeap pool → the OCDM↔decoder
   hand-off disappears; encrypted path → **1 copy + fused decode**). (A) saves CPU memcpys; (B) saves
   secure-domain hand-offs. Composes with explicit construction. → fold into dual-decode/HAL LLD.
+- **Beej's `RdkGstreamerUtilsWrapper` SoC-audio work — reviewed 2026-06-24, aligned in approach.** Beej is
+  independently moving SoC-specific audio knowledge out of `GstGenericPlayer` into rialto's
+  `firebolt::rialto::wrappers::RdkGstreamerUtilsWrapper` (new methods `configureAudioSink`,
+  `configureAudioDecoder`, `applyPlaybackRateChange`, `getWebAudioSinkKind`, `shouldIgnoreCapabilityFactory`,
+  and an amlogic codec-switch branch). Confirmed with user: **NOT a competing-home conflict** with our
+  `IPlatformBackend` seam — the hard-coded vendor-name string compares are the same transitional scaffolding
+  we have in `LinuxPlatformBackend::createAudioSink`; the per-SoC `.so` split (#6) is a known requirement
+  Beej just hasn't added yet (he's "behind the curve"). Both efforts converge on the SoC `.so`. Real review
+  gaps (his snapshot was interface+impl only, files were on `gmac:~/Downloads/beej`): (1) won't compile —
+  concrete `wrappers/include/RdkGstreamerUtilsWrapper.h` + the test mock still need the 5 new decls;
+  (2) missing `<gst/base/gstbasesink.h>` for `GST_BASE_SINK_PAD`; (3) latent pre-existing bug — amlogic
+  codec-switch path `(void)`-discards caller `ret`/`status` outputs. (Memory: [[beej-rdkgstreamerutils-soc-alignment]].)
 
 ## What's PENDING (next, in order)
 
-- **Playbin removal — stage 4 COMPLETE (#4); stage 5 (flip default, delete playbin, #5) is now the
-  active item.** On `feature/4-explicit-video-subtitle`. **Stage 3 COMPLETE and MERGED** (PR #3, rebase):
-  3a/3b/3c/3c-decoder/3d. **Stage 4 COMPLETE** (4a/4b/4c/4d, all landed on this branch — merge checkpoint:
-  merge `feature/4-explicit-video-subtitle` → `master` now, all behind the default-off
-  `RIALTO_EXPLICIT_PIPELINE` switch so behaviorally inert). Stage 4 sub-commits (mirror stage 3; see
-  `PLAYBIN-REMOVAL-PLAN.md` §5 stage 4):
+- **Playbin removal — COMPLETE (3 → 5c) + follow-up bug #8 fixed.** Default is explicit; the playbin
+  construction path, the `RIALTO_EXPLICIT_PIPELINE` switch, and the `isExplicitConstruction` flag are all
+  gone. `#5c` = **`ac00245f`** on `feature/5-flip-default-delete-playbin`; `#8` = **`bfe9d7ec`** on
+  `feature/8-explicit-av-appsrc-callbacks` (stacked on feature/5). The stack is now **MERGED to local
+  master (`6ab0d3dd`)**; two things still open — the **push to origin** and a small **residual dead-code
+  cleanup** (now scoped as an OpenSpec proposal) — detailed in the residual / Merge-checkpoint sub-bullets
+  below. **Stage 3 MERGED** (PR #3, rebase): 3a/3b/3c/3c-decoder/3d.
+  **Stage 4 COMPLETE** (4a/4b/4c/4d). Landed-stage history (3 → 5b) follows for recovery — Stage 4
+  sub-commits (mirror stage 3; see `PLAYBIN-REMOVAL-PLAN.md` §5 stage 4):
   - **4a — LANDED.** Explicit video chain builder `buildVideoChain` (appsrc → decodebin → backend
     videoSink), wiring `IPlatformBackend::createVideoSink(name, videoId)` (videoId 0=primary/1=secondary,
     derived in the ctor and stored in `m_context.videoId`; the explicit path skips the playbin
@@ -237,17 +353,53 @@ confirmed** — it is a *possible* future swap, not a committed phase. GStreamer
       Tests: `shouldRefreshPlaybackGroupHandlesOnExplicitReattach`, `shouldBuildExplicitAudioChain` extended
       to assert the stable stores, parity audio arrange updated for the 2nd sink ref. servergstplayer
       706/706, servermain 471/471. **Stage 5 is now unblocked → 5b (flip default) is the next item.**
-    - **5b (after parity): flip default to explicit + remove the `RIALTO_EXPLICIT_PIPELINE` switch.**
-    - **5c: delete playbin construction** (`initMsePipelinePlaybin`, `setPlaybinFlags`/`getGstPlayFlag`/
-      `shouldEnableNativeAudio`, playsink/uri tweaks).
-    - **5d: delete** auto-sink unwrapping (`getSinkChildIfAutoVideoSink`/`Audio`) + the `getSink`-via-playbin
-      branches + now-dead reactive `SetupElement`/`DeepElementAdded`/`SetupSource` branches; prune/collapse
-      tests (ParityTest `{Playbin,Explicit}` → single path). Final `build_ut.py` + `build_ct.py` sweep.
-    - Deletion map (5c/5d) is fully scoped and ready; the gate is reaching feature parity (5a + 5a-switch
-      done → parity reached; 5b flip is next).
-- **dlopen loader** for the per-SoC `.so` — lifts the transitional amlhalasink/rtkaudiosink
-  ladder out of `LinuxPlatformBackend::createAudioSink` into the SoC `.so` (the "SoC lower
-  level"); the reference backend then keeps only autoaudiosink.
+    - **5b — LANDED (`159b9653`).** Flipped the production default to explicit construction in
+      `initMsePipeline`. **Refinement vs the original plan:** the `RIALTO_EXPLICIT_PIPELINE` switch is
+      *retained as an opt-OUT* (`=0` → legacy playbin) rather than removed here — removing it outright
+      would break the entire playbin test corpus (the bulk of the generic-player unit tests construct
+      via `gstPlayerWillBeCreated`/`expectMakePlaybin` and rely on the playbin default; only ParityTest
+      sets the env). Keeping the opt-out gives the §7 per-platform fallback and keeps the playbin path +
+      tests exercised until they are deleted together in 5c/5d (switch removal moves to 5c with playbin
+      deletion). Tests select their path deterministically by setenv on the construction expectation
+      (`expectMakePlaybin` → `=0`, `expectMakePipeline` → `=1`). servergstplayer 706/706, servermain 471/471.
+    - **5c — LANDED (`ac00245f`). Playbin construction + flag removed; tests collapsed.** Deleted
+      `initMsePipelinePlaybin`, `setPlaybinFlags`/`getGstPlayFlag`/`shouldEnableNativeAudio`,
+      `setWesterossinkSecondaryVideo`/`setErmContext`, the playbin `source-setup`/`element-setup`/
+      `deep-element-added` callbacks, the `RIALTO_EXPLICIT_PIPELINE` switch, and the
+      `isExplicitConstruction` flag. Collapsed all per-source playbin data branches (AttachSource subtitle
+      `text-sink`, FinishSetupSource rialtosrc) and the parity suite `{Playbin,Explicit}` → explicit-only;
+      the 6 audio-reattach tests now expect the unconditional playback-group refresh. servergstplayer
+      674/674, servermain 471/471. (Folded the plan's 5d test-collapse into this commit.)
+    - **#8 — LANDED (`bfe9d7ec`).** `FinishSetupSource` now iterates every `streamInfo` entry instead of
+      audio-only, so video/subtitle appsrcs get their need-data/seek callbacks (they stalled on the
+      explicit/default path — pre-existing gap from stage 4). New video/subtitle `FinishSetupSourceTest`
+      cases. servergstplayer 677/677, servermain 471/471. `Fixes #8` (auto-closes on merge).
+    - **RESIDUAL CLEANUP — DONE (`b6d4a0c4`), merged + pushed.** Implemented via the OpenSpec change
+      `playbin-removal-residual-cleanup` (the first OpenSpec trial). Removed the auto-sink *unwrap* in
+      `getSink` + the `getSinkChildIfAuto*` helpers, the four `add/removeAuto*SinkChild` methods (impl +
+      `IGstGenericPlayerPrivate` + mock), the `autoVideoChildSink`/`autoAudioChildSink` members, and the
+      three dead reactive tasks `SetupElement`/`SetupSource`/`DeepElementAdded` (sources, factory methods,
+      tests, ~80 dead `GenericTasksTestsBase` helpers, CMake). **Partial by design:** the bare
+      `gObjectGet("audio-sink"/"video-sink"/"text-sink")` property read in `getSink` is **retained** — the
+      server component suite still drives it and can't migrate until the harness has a platform backend (#6);
+      full deletion is tracked in **#9**. Implementation note: the tests-first sink migration turned out a
+      **no-op** for `SetPlaybackRate` (it reads `audio-sink` directly, not via `getSink`); the real test work
+      was dropping the orphaned `gTypeName` unwrap expectation from `expectGetAVSink` + the reattach cases and
+      deleting the auto-sink-specific tests. Unit suites green: servergstplayer **611/611**, servermain
+      **471/471**.
+    - **MERGE CHECKPOINT — DONE + PUSHED.** `master` (cleanup `b6d4a0c4` + `--no-ff` merge `f9d14b04`, on top
+      of `6ab0d3dd`) **pushed to `origin` (Ulrond) on 2026-06-25**. Auto-closed **#4** and **#8**; **#5**
+      closed manually (its `#5c` commit carried no closing keyword). Commit identity pinned to Ulrond.
+- **dlopen loader (#6) — SPECCED via OpenSpec, ready to implement.** Change `dlopen-per-soc-platform-backend`
+  (4/4 artifacts, validates) lifts the transitional amlhalasink/rtkaudiosink ladder out of
+  `LinuxPlatformBackend::createAudioSink` into a per-SoC `.so`; the reference backend then keeps only
+  autoaudiosink/autovideosink. Design: loader discovery (`RIALTO_PLATFORM_BACKEND` override → `RIALTO_PLATFORM_DIR`
+  → built-in fallback), ABI version-check against `kPlatformBackendAbiVersion` (refuse+fallback on mismatch),
+  `shared_ptr` deleter that `rialtoDestroyPlatformBackend`+`dlclose`, and an **injectable loader seam**.
+  Today the engine calls `rialtoCreatePlatformBackend` directly (static link, `GstGenericPlayer.cpp:133`);
+  the loader replaces that. The injectable backend is the hook **#9** consumes to give the component harness a
+  sink-storing backend. Lives at `pipewire_example/openspec/changes/dlopen-per-soc-platform-backend/`.
+  **Next: `/opsx:apply dlopen-per-soc-platform-backend`.**
 - **python_raft + ut_core** (`github.com/rdkcentral/`) — the test-harness move, for **integrated-HAL
   testing via the control plane** (not just wrapping unit tests). Goal: stand up the real binder/AIDL
   HAL services (`pipewire_example/hal`, brought up by `hal/scripts/services_up.sh`) and have raft
@@ -257,7 +409,7 @@ confirmed** — it is a *possible* future swap, not a committed phase. GStreamer
   structure/reporting and the existing gtest suites (rialto 339 unit incl. 76 gstplayer + component;
   rialto-gstreamer 21; rialto-ocdm 10) for per-platform conformance. The mocked gtest suites (incl.
   the parity fixture) stay the fast inner loop; raft+ut_core are the outer HW-in-the-loop loop.
-  **Plan written: `HAL-INTEGRATION-TEST-PLAN.md`** (next to this file). Organising principle =
+  **Plan written: `RIALTO-INTEGRATION-TEST-PLAN.md`** (next to this file). Organising principle =
   **versioned conformance against the `IPlatformBackend`/AIDL ABI**, with two versioning axes:
   **pinned ut-core** (ingested at a fixed version → consistent harness/reporting/config) running an
   **ABI-versioned conformance suite** (content tied to `kPlatformBackendAbiVersion`). Key decisions:
@@ -267,12 +419,44 @@ confirmed** — it is a *possible* future swap, not a committed phase. GStreamer
   `rialtoPlatformBackendAbiVersion()` → passing the vN suite certifies it, **additive** bumps, old
   backends not re-certified (makes "upgrade SoC layer without re-test" enforceable). Coverage matrix
   (31 props / ~10 codecs / 39 ops × path) is the versioned requirement record.
+- **getSink-fallback finish + component-suite migration (#9)** — the deferred tail of the residual cleanup.
+  Delete the `gObjectGet("audio-sink"/...)` property read from `getSink` (so the stored sink is the *exclusive*
+  source) **and** migrate the server component harness off the playbin/source-setup model so it builds the
+  explicit chain. Blocked on **#6** (the injectable backend the harness needs). Restores the full
+  `explicit-pipeline-sink-access` spec requirement (currently relaxed to an interim contract).
+
+## Conformance suite — hard requirements (#7 / #9)
+
+The conformance suite (ut-core + python-raft) is a **version-independent, platform-agnostic oracle**, not a
+fixture welded to one build:
+
+- **Independent of Rialto / version-independent.** A separate suite you point at *any* build — old Rialto, an
+  older checkout, or latest — and the *same* tests give the *same* results. Any diff is a real bug/regression
+  or intended new behaviour. It is the migration's parity / non-regression oracle.
+- **Platform-agnostic.** python-raft selects the target, so the suite runs across SoC backends (reference
+  autosink + per-SoC vendor `.so` over the versioned `IPlatformBackend` ABI) by **building/selecting**, never
+  by editing tests. ut-core = case/assertion structure + reporting; raft = multi-platform / HW-in-the-loop.
+- **Covers both contracts.** The **MSE interface** (properties & caps) **and** **Rialto native** — *all*
+  functions, existing **and** new.
+
+**Design rule that makes this possible: bind to the stable external contract, never to internal wiring.** The
+enablers already exist — the injectable `IPlatformBackend` seam (#6) swaps implementation without touching
+tests; the versioned ABI lets old/new run side-by-side.
+
+**Concrete counter-example / motivation:** the current server component suite (`tests/componenttests/server`,
+`build_ct.py -s server`) is **red — 12 tests** (`MediaPipelineTest.*`, `AudioSourceSwitchTest`,
+`DualVideoPlaybackTest`, `EncryptedPlaybackTest`, `FlushTest`, `FirstFrameNotificationTest`). Verified
+**pre-existing from 5b/5c**, not the residual cleanup: identical 12 failures at `bfe9d7ec` (pre-cleanup) and at
+current master — zero regressions. Root cause = the harness (`MediaPipelineTest`) is hard-wired to the old
+playbin/source-setup GStreamer mocks and was never migrated to the explicit path; post-5c the pipeline is never
+built (no backend → `buildAudioChain` bails → "Could not find any Sink" → teardown SIGSEGV). #9 re-cuts it
+against the injectable backend (#6) — the same move that gives the suite its old/new portability.
 
 ## Local working docs (in `external/`, gitignored — NOT in any repo)
 
 - `external/rialto/docs/HANDOFF.md` — this file. (Working docs were moved under `docs/`.)
 - `external/rialto/docs/PLAYBIN-REMOVAL-PLAN.md` — the 5-stage plan; stage-3 sub-commits + decodebin decision.
-- `external/rialto/docs/HAL-INTEGRATION-TEST-PLAN.md` — versioned-conformance test plan (ut-core + raft;
+- `external/rialto/docs/RIALTO-INTEGRATION-TEST-PLAN.md` — versioned-conformance test plan (ut-core + raft;
   pinned-harness + ABI-versioned-contract axes; no-conversion gtest ingest; coverage matrix).
 - `pipewire_example/experiments/playbin-vs-explicit/RESULTS.md` — the evidence report, committed on
   `feature/13-binder-hal-bridge` (`1549409`, `40148ac`). Now an A-vs-B report (current playbin vs new
@@ -306,8 +490,10 @@ confirmed** — it is a *possible* future swap, not a committed phase. GStreamer
 ## Build / test commands (in `external/rialto`)
 
 ```
-build_ut.py -s <suite> -cov     # unit tests
-build_ct.py                     # component tests
+build_ut.py -s <suite> -cov                          # unit tests (green)
+./build_ut_docker.sh -s servergstplayer servermain   # ceres docker wrapper for the unit suites
+build_ct.py -s server                                # component tests — KNOWN RED (12, pre-existing 5c; #9)
+sc docker run -l -t local rialto-build -- env PROFILER_ENABLED=true python3 build_ct.py -s server  # ceres
 ```
 
 **On ceres (the build host) — builds run in a docker via `sc`** (ceres host lacks the rialto deps and you
@@ -331,3 +517,26 @@ loop ONLY — NOT the production build** (production = official rdk-kirkstone/Yo
 builds its own gstreamer; that is why the apt gstreamer version here is immaterial — the tests mock
 gstreamer). Caveat: `sc` space-joins the post-`--` command, so avoid shell-glob chars in `-gf` filters
 (`FooTest.*` is fine; `*Foo*` may glob-expand). See [[ceres-sc-docker-build]].
+
+## Tooling & environment (ceres)
+
+- **gh CLI — two `github.com` accounts.** `Ulrond` = the **open** login (use for `rdkcentral` + the
+  `Ulrond/rialto` fork); `gerald-weatherup_comcast` = the **ghec** (Enterprise Managed User) login (for
+  `rdke` / `comcast-sky`). Both on the same host, only one active at a time. **Before any `gh` op on the
+  fork/rdkcentral, run `gh auth switch --hostname github.com --user Ulrond`** — the active account
+  silently defaults to whichever was set last. Re-create the Ulrond token from hpz4's keyring:
+  `ssh hpz4 'gh auth token' | gh auth login --hostname github.com --git-protocol https --with-token`.
+- **OpenSpec trial (spec-driven-dev tooling, fission-ai/openspec).** Installed globally (`openspec`,
+  `npm i -g @fission-ai/openspec`) and `init`-ed for Claude Code **in `pipewire_example`** — adds
+  `/opsx:explore|propose|apply|archive|sync` commands + skills under `.claude/`, and an `openspec/` dir.
+  **Parked behind a local-only ignore (`.git/info/exclude`)** so it is invisible to git / never committed;
+  Claude Code still loads it. It is **additive and optional** — our plan-docs/staged-commits/handoff
+  method stays primary and the Confluence LLDs stay canonical. Slash commands need a **session reload** to
+  appear. **First trial DONE:** ran `/opsx:propose` on the RESIDUAL CLEANUP →
+  `playbin-removal-residual-cleanup` change (4/4 artifacts, validates). Early verdict: cleaner
+  why/what/how/steps separation + the spec-as-contract (`explicit-pipeline-sink-access`) is a genuinely
+  useful artifact our plan-docs lacked, but heavier ceremony for a dead-code deletion; the real value
+  (code inventory) was added by an Explore agent, not driven by OpenSpec. **Full judgment pending
+  `/opsx:apply`** (does the task list survive contact with the code). Remove the whole trial with:
+  `rm -rf openspec .claude/commands/opsx .claude/skills/openspec-* && npm rm -g @fission-ai/openspec`
+  then delete the OpenSpec block in `.git/info/exclude`. (Topology also in memory: [[gh-accounts-open-vs-ghec]].)
