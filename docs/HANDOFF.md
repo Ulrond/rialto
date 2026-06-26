@@ -5,8 +5,9 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-26 (#6 dlopen-loader **implemented + merged to master `637a11de` and PUSHED to origin/Ulrond**; issue #6 still OPEN — merge subject `(#6)` lacked a closing keyword, needs manual close like #5;
-two new OpenSpec changes written + validated — `rialto-conformance-suite` and `complete-soc-platform-isolation`;
+_Last updated: 2026-06-26 (#6 dlopen-loader **merged to master `637a11de`, PUSHED to origin/Ulrond, issue #6 CLOSED**;
+**SoC isolation concerns #1 (video-master) + #2 (playback-rate) DONE + merged to local master `4fe13bb3`** —
+`IPlatformBackend` v3, engine grep-clean bar the codec-switch (task 4); **push held** for explicit go;
 architecture diagrams added; SoC migration scoped + classified)_
 
 ---
