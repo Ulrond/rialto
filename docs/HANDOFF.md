@@ -64,11 +64,23 @@ reference, `rdk_gstreamer_utils_soc.cpp` + `halif-versions.h`) and `westeros` (`
 playbin-vs-explicit, SoC plug points, SoC migration map. `HAL-INTEGRATION-TEST-PLAN.md` renamed →
 `RIALTO-INTEGRATION-TEST-PLAN.md`.
 
-**Open / next:** (1) **#6 DONE** (pushed + issue closed); (2) **conclude the transformation BEFORE the
-external-interface test suites** (user-directed 2026-06-26) — so `/opsx:apply complete-soc-platform-isolation`
-FIRST, then `rialto-conformance-suite`; (3) start SoC isolation concern #1
-(`isVideoMaster`) — branch off `master`, additive `IPlatformBackend` v3, `GstCapabilities` acquires a backend
-via the loader, test-first; (4) commit the untracked docs/diagrams if wanted.
+**SoC isolation (concluding the transformation) — IN PROGRESS on `feature/1-soc-platform-isolation`**
+(branched off `master`, under Milestone #1; docs committed here `059ae98c`):
+- **Inventory + classify DONE** (task 1). Genuine seam migrations: **#1 video-master** (`GstCapabilities`)
+  + **#2 playback-rate** (`SetPlaybackRate`). Stay-in-core (relabel only): position quirk
+  (`pushAdditionalSegmentIfRequired`) + decoder rate-correction (`enable-rate-correction`, property-probed).
+  rdk-gstreamer-utils convergence (task 4): codec-switch `amlhalasink` branch (`GstGenericPlayer.cpp:1914`).
+- **Concern #1 video-master — LANDED (`7bb20bb8`).** `IPlatformBackend` grown to **ABI v3** (additive
+  `isVideoMaster()`, `kPlatformBackendAbiVersion`→3); `LinuxPlatformBackend::isVideoMaster()`=true; mock +
+  loader fixture gain the method; `GstCapabilities` acquires a backend via `PlatformBackendLoader` (ctor param
+  = test seam) and delegates `isVideoMaster()`, deleting the inline `amlhalasink` registry probe. Tests inject
+  `PlatformBackendMock`. servergstplayer 614/614, servermain 471/471.
+
+**Open / next:** (1) **#6 DONE** (pushed + issue closed); (2) **concern #2 — playback-rate**
+(`SetPlaybackRate.cpp:74` `amlhalasink` prefix → `IPlatformBackend::applyPlaybackRate(sink,rate)` v3,
+test-first, behaviour-preserving); (3) then relabel-only concerns (position quirk, rate-correction), the
+rdk-utils convergence (task 4), and per-SoC `.so` authoring (task 5); (4) **external-interface test suites
+come AFTER** the transformation concludes (`rialto-conformance-suite`).
 
 ---
 
