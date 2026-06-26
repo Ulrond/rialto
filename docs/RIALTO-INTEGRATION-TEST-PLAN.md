@@ -1,4 +1,4 @@
-# HAL Integration Test Plan — Versioned Conformance for the Rialto / SoC ABI
+# Rialto Integration Test Plan — Versioned Conformance for the Rialto / SoC ABI
 
 **TL;DR** — Stand up a two-layer test strategy whose organising principle is **versioned
 conformance against the `IPlatformBackend` / AIDL ABI**. The fast inner loop stays the existing
