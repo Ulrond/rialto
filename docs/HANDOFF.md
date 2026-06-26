@@ -75,12 +75,33 @@ playbin-vs-explicit, SoC plug points, SoC migration map. `HAL-INTEGRATION-TEST-P
   loader fixture gain the method; `GstCapabilities` acquires a backend via `PlatformBackendLoader` (ctor param
   = test seam) and delegates `isVideoMaster()`, deleting the inline `amlhalasink` registry probe. Tests inject
   `PlatformBackendMock`. servergstplayer 614/614, servermain 471/471.
+- **Concern #2 playback-rate — LANDED (`577088ef`).** v3 gains `applyPlaybackRate(pipeline,rate)`; Linux ref
+  sends the custom-instant-rate-change event downstream (sink-pad new-segment variant → per-SoC `.so`).
+  `GstGenericPlayer` exposes `applyPlaybackRate(rate)` on `IGstGenericPlayerPrivate` and delegates to the
+  backend; `SetPlaybackRate` takes the player (not gst/glib wrappers), keeps its pipeline-state gating, deletes
+  the inline `gStrHasPrefix(...,"amlhalasink")` dispatch + audio-sink lookup. 6 dispatch tests → 2 (success/
+  failure); +Linux `applyPlaybackRate`/`isVideoMaster` cases. servergstplayer 613/613, servermain 471/471.
+- **Relabels + grep-clean — LANDED (`1bdea813`).** Stay-in-core generic logic stripped of SoC names: position
+  quirk (`amlogic devices`→`some platforms`), rate-correction log (`broadcom decoder`→`the decoder`),
+  web-audio comment (dropped the amlhalasink/rtkaudiosink/autoaudiosink example list). **Engine grep-clean**
+  now: the ONLY SoC name left in engine code is the live-graph audio **codec switch** (`switchAudioCodec`,
+  `GstGenericPlayer.cpp:1918`), intentionally retained — it's the **rdk-gstreamer-utils convergence (task 4)**,
+  owned by `RdkGstreamerUtilsWrapper::performAudioTrackCodecChannelSwitch` (not reimplementable), coordinates
+  with Beej; marked with an orienting note. Platform-seam interface docs name vendors as legitimate contract
+  examples.
 
-**Open / next:** (1) **#6 DONE** (pushed + issue closed); (2) **concern #2 — playback-rate**
-(`SetPlaybackRate.cpp:74` `amlhalasink` prefix → `IPlatformBackend::applyPlaybackRate(sink,rate)` v3,
-test-first, behaviour-preserving); (3) then relabel-only concerns (position quirk, rate-correction), the
-rdk-utils convergence (task 4), and per-SoC `.so` authoring (task 5); (4) **external-interface test suites
-come AFTER** the transformation concludes (`rialto-conformance-suite`).
+**Engine-side transformation is COMPLETE** (the two genuine seam migrations + relabels; core names no SoC bar
+the documented codec-switch). **Remaining = the "testing it all" phase** (out of this core branch):
+- **Task 4** — rdk-gstreamer-utils convergence (codec switch + audio fade/easing), with Beej's
+  `RdkGstreamerUtilsWrapper` work ([[beej-rdkgstreamerutils-soc-alignment]]).
+- **Task 5** — author per-SoC `.so`s (`librialtoplatform-amlogic/-realtek/-broadcom`) in per-platform repos
+  (Decision 7: never the core), carrying the migrated vendor logic (amlhalasink video-master=false + sink-pad
+  new-segment rate, etc.).
+- **Task 6** — certify each `.so` against the `rialto-conformance` v3 suite; retire inline paths per the
+  stability gate. Then the external-interface suites (`rialto-conformance-suite`).
+
+**Open / next:** merge `feature/1-soc-platform-isolation` → `master` (local; hold push per the fork-push gate),
+then start the testing phase.
 
 ---
 
