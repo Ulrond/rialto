@@ -64,10 +64,9 @@ namespace firebolt::rialto::server
 GenericPlayerTaskFactory::GenericPlayerTaskFactory(
     IGstGenericPlayerClient *client, const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
     const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-    const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
     const std::shared_ptr<IGstTextTrackSinkFactory> &gstTextTrackSinkFactory)
     : m_client{client}, m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper},
-      m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper}, m_gstTextTrackSinkFactory{gstTextTrackSinkFactory}
+      m_gstTextTrackSinkFactory{gstTextTrackSinkFactory}
 {
 }
 
@@ -187,9 +186,8 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetVolume(GenericPl
                                                                        double targetVolume, uint32_t volumeDuration,
                                                                        firebolt::rialto::EaseType easeType) const
 {
-    return std::make_unique<tasks::generic::SetVolume>(context, player, m_gstWrapper, m_glibWrapper,
-                                                       m_rdkGstreamerUtilsWrapper, targetVolume, volumeDuration,
-                                                       easeType);
+    return std::make_unique<tasks::generic::SetVolume>(context, player, m_gstWrapper, m_glibWrapper, targetVolume,
+                                                       volumeDuration, easeType);
 }
 
 std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetMute(GenericPlayerContext &context,
@@ -304,15 +302,12 @@ std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createSetSubtitleOffset(G
     return std::make_unique<tasks::generic::SetSubtitleOffset>(context, m_glibWrapper, position);
 }
 
-std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createProcessAudioGap(GenericPlayerContext &context,
-                                                                             std::int64_t position,
-                                                                             std::uint32_t duration,
-                                                                             std::int64_t discontinuityGap,
-                                                                             bool audioAac) const
+std::unique_ptr<IPlayerTask> GenericPlayerTaskFactory::createProcessAudioGap(
+    GenericPlayerContext &context, IGstGenericPlayerPrivate &player, std::int64_t position, std::uint32_t duration,
+    std::int64_t discontinuityGap, bool audioAac) const
 {
-    return std::make_unique<tasks::generic::ProcessAudioGap>(context, m_gstWrapper, m_glibWrapper,
-                                                             m_rdkGstreamerUtilsWrapper, position, duration,
-                                                             discontinuityGap, audioAac);
+    return std::make_unique<tasks::generic::ProcessAudioGap>(context, player, m_gstWrapper, m_glibWrapper, position,
+                                                             duration, discontinuityGap, audioAac);
 }
 
 std::unique_ptr<IPlayerTask>

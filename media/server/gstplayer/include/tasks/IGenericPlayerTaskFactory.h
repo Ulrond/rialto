@@ -455,6 +455,7 @@ public:
      * @brief Creates a ProcessAudioGap task.
      *
      * @param[in] context          : The GstPlayer context
+     * @param[in] player           : The GstPlayer instance
      * @param[in] position         : Audio pts fade position
      * @param[in] duration         : Audio pts fade duration
      * @param[in] discontinuityGap : Audio discontinuity gap
@@ -462,7 +463,8 @@ public:
      *
      * @retval the new ProcessAudioGap task instance.
      */
-    virtual std::unique_ptr<IPlayerTask> createProcessAudioGap(GenericPlayerContext &context, std::int64_t position,
+    virtual std::unique_ptr<IPlayerTask> createProcessAudioGap(GenericPlayerContext &context,
+                                                               IGstGenericPlayerPrivate &player, std::int64_t position,
                                                                std::uint32_t duration, std::int64_t discontinuityGap,
                                                                bool audioAac) const = 0;
 

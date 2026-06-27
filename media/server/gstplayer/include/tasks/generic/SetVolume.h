@@ -34,9 +34,8 @@ class SetVolume : public IPlayerTask
 public:
     SetVolume(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
               const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
-              const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-              const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-              double targetVolume, uint32_t volumeDuration, firebolt::rialto::EaseType easeType);
+              const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper, double targetVolume,
+              uint32_t volumeDuration, firebolt::rialto::EaseType easeType);
     ~SetVolume() override;
     void execute() const override;
 
@@ -45,7 +44,6 @@ private:
     IGstGenericPlayerPrivate &m_player;
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;
     std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> m_glibWrapper;
-    std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> m_rdkGstreamerUtilsWrapper;
     double m_targetVolume;
     uint32_t m_volumeDuration;
     firebolt::rialto::EaseType m_easeType;

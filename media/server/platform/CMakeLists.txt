@@ -41,6 +41,7 @@ target_include_directories(rialto-platform-linux PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/interface
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../public/include
     ${GST_INCLUDE_DIRS})
 
 target_link_libraries(rialto-platform-linux PRIVATE ${GST_LIBRARIES})

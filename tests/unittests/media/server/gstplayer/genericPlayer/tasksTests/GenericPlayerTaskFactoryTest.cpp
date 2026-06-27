@@ -27,7 +27,6 @@
 #include "GstTextTrackSinkFactoryMock.h"
 #include "GstWrapperMock.h"
 #include "HeartbeatHandlerMock.h"
-#include "RdkGstreamerUtilsWrapperMock.h"
 #include "tasks/IPlayerTask.h"
 #include "tasks/generic/AttachSamples.h"
 #include "tasks/generic/AttachSource.h"
@@ -84,13 +83,11 @@ protected:
         std::make_shared<StrictMock<firebolt::rialto::wrappers::GlibWrapperMock>>()};
     std::shared_ptr<firebolt::rialto::wrappers::GstWrapperMock> m_gstWrapper{
         std::make_shared<StrictMock<firebolt::rialto::wrappers::GstWrapperMock>>()};
-    std::shared_ptr<firebolt::rialto::wrappers::RdkGstreamerUtilsWrapperMock> m_rdkGstreamerUtilsWrapper{
-        std::make_shared<StrictMock<firebolt::rialto::wrappers::RdkGstreamerUtilsWrapperMock>>()};
     std::shared_ptr<firebolt::rialto::server::GstTextTrackSinkFactoryMock> m_gstTextTrackSinkFactoryMock{
         std::make_shared<StrictMock<firebolt::rialto::server::GstTextTrackSinkFactoryMock>>()};
     StrictMock<firebolt::rialto::server::FlushWatcherMock> m_flushWatcherMock;
     firebolt::rialto::server::GenericPlayerTaskFactory m_sut{&m_gstPlayerClient, m_gstWrapper, m_glibWrapper,
-                                                             m_rdkGstreamerUtilsWrapper, m_gstTextTrackSinkFactoryMock};
+                                                             m_gstTextTrackSinkFactoryMock};
 };
 
 TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateAttachSamples)
@@ -328,7 +325,7 @@ TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateSetSourcePosition)
 
 TEST_F(GenericPlayerTaskFactoryTest, ShouldCreateProcessAudioGap)
 {
-    auto task = m_sut.createProcessAudioGap(m_context, 0, 0, 0, false);
+    auto task = m_sut.createProcessAudioGap(m_context, m_gstPlayer, 0, 0, 0, false);
     EXPECT_NE(task, nullptr);
     EXPECT_NO_THROW(dynamic_cast<firebolt::rialto::server::tasks::generic::ProcessAudioGap &>(*task));
 }

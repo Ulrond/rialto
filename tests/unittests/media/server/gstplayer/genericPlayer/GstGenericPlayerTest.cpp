@@ -54,7 +54,7 @@ protected:
         gstPlayerWillBeCreated();
         m_sut = std::make_unique<GstGenericPlayer>(&m_gstPlayerClient, m_decryptionServiceMock, MediaType::MSE,
                                                    m_videoReq, m_isLive, m_gstWrapperMock, m_glibWrapperMock,
-                                                   m_rdkGstreamerUtilsWrapperMock, m_gstInitialiserMock,
+                                                   m_gstInitialiserMock,
                                                    std::move(m_flushWatcher), m_gstSrcFactoryMock,
                                                    m_gstProfilerFactoryMock, m_timerFactoryMock, std::move(m_taskFactory),
                                                    std::move(workerThreadFactory), std::move(gstDispatcherThreadFactory),
@@ -902,7 +902,7 @@ TEST_F(GstGenericPlayerTest, shouldProcessAudioGap)
     constexpr bool kIsAudioAac{false};
     std::unique_ptr<IPlayerTask> task{std::make_unique<StrictMock<PlayerTaskMock>>()};
     EXPECT_CALL(dynamic_cast<StrictMock<PlayerTaskMock> &>(*task), execute());
-    EXPECT_CALL(m_taskFactoryMock, createProcessAudioGap(_, kPosition, kDuration, kDiscontinuityGap, kIsAudioAac))
+    EXPECT_CALL(m_taskFactoryMock, createProcessAudioGap(_, _, kPosition, kDuration, kDiscontinuityGap, kIsAudioAac))
         .WillOnce(Return(ByMove(std::move(task))));
 
     m_sut->processAudioGap(kPosition, kDuration, kDiscontinuityGap, kIsAudioAac);

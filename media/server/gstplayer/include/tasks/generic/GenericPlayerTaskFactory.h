@@ -37,7 +37,6 @@ public:
     GenericPlayerTaskFactory(
         IGstGenericPlayerClient *client, const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
         const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-        const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
         const std::shared_ptr<IGstTextTrackSinkFactory> &gstTextTrackSinkFactory);
     ~GenericPlayerTaskFactory() override = default;
 
@@ -114,9 +113,9 @@ public:
                                                          uint64_t stopPosition) const override;
     std::unique_ptr<IPlayerTask> createSetSubtitleOffset(GenericPlayerContext &context,
                                                          std::int64_t position) const override;
-    std::unique_ptr<IPlayerTask> createProcessAudioGap(GenericPlayerContext &context, std::int64_t position,
-                                                       std::uint32_t duration, std::int64_t discontinuityGap,
-                                                       bool audioAac) const override;
+    std::unique_ptr<IPlayerTask> createProcessAudioGap(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                                                       std::int64_t position, std::uint32_t duration,
+                                                       std::int64_t discontinuityGap, bool audioAac) const override;
     std::unique_ptr<IPlayerTask> createSetImmediateOutput(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
                                                           const firebolt::rialto::MediaSourceType &type,
                                                           bool immediateOutput) const override;
@@ -135,7 +134,6 @@ private:
     IGstGenericPlayerClient *m_client;
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;
     std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> m_glibWrapper;
-    std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> m_rdkGstreamerUtilsWrapper;
     std::shared_ptr<IGstTextTrackSinkFactory> m_gstTextTrackSinkFactory;
 };
 } // namespace firebolt::rialto::server

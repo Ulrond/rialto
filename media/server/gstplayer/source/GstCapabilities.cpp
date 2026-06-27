@@ -138,16 +138,6 @@ std::unique_ptr<IGstCapabilities> GstCapabilitiesFactory::createGstCapabilities(
             throw std::runtime_error("Cannot create GlibWrapper");
         }
 
-        std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapperFactory> rdkGstreamerUtilsWrapperFactory =
-            firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapperFactory::getFactory();
-        std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> rdkGstreamerUtilsWrapper;
-
-        if ((!rdkGstreamerUtilsWrapperFactory) ||
-            (!(rdkGstreamerUtilsWrapper = rdkGstreamerUtilsWrapperFactory->createRdkGstreamerUtilsWrapper())))
-        {
-            throw std::runtime_error("Cannot create RdkGstreamerUtilsWrapper");
-        }
-
         // Acquire the SoC platform backend through the loader: it dlopen()s a per-SoC
         // .so (version-checked against kPlatformBackendAbiVersion) and falls back to the
         // built-in reference backend when none is present. The core names no SoC; the
@@ -155,8 +145,8 @@ std::unique_ptr<IGstCapabilities> GstCapabilitiesFactory::createGstCapabilities(
         PlatformHostContext platformHostContext{gstWrapper, glibWrapper};
         std::shared_ptr<IPlatformBackend> platformBackend{PlatformBackendLoader{}.load(platformHostContext)};
 
-        gstCapabilities = std::make_unique<GstCapabilities>(gstWrapper, glibWrapper, rdkGstreamerUtilsWrapper,
-                                                            IGstInitialiser::instance(), platformBackend);
+        gstCapabilities = std::make_unique<GstCapabilities>(gstWrapper, glibWrapper, IGstInitialiser::instance(),
+                                                            platformBackend);
     }
     catch (const std::exception &e)
     {
@@ -166,13 +156,12 @@ std::unique_ptr<IGstCapabilities> GstCapabilitiesFactory::createGstCapabilities(
     return gstCapabilities;
 }
 
-GstCapabilities::GstCapabilities(
-    const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
-    const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-    const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-    const IGstInitialiser &gstInitialiser, const std::shared_ptr<IPlatformBackend> &platformBackend)
-    : m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper}, m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper},
-      m_gstInitialiser{gstInitialiser}, m_platformBackend{platformBackend}
+GstCapabilities::GstCapabilities(const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
+                                 const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
+                                 const IGstInitialiser &gstInitialiser,
+                                 const std::shared_ptr<IPlatformBackend> &platformBackend)
+    : m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper}, m_gstInitialiser{gstInitialiser},
+      m_platformBackend{platformBackend}
 {
     m_initialisationThread = std::thread(
         [this]()
@@ -298,11 +287,12 @@ std::vector<std::string> GstCapabilities::getSupportedProperties(MediaSourceType
         }
     }
 
-    // Some sinks do not specifically support the "audio-fade" property, but the mechanism is supported through the use
-    // of the rdk_gstreamer_utils library. Check for audio fade support if the property is required and we haven't found it in the sinks.
+    // Some sinks do not specifically support the "audio-fade" property, but the SoC may still perform audio fade
+    // through its platform audio path. Check whether the platform backend reports audio-fade support if the property
+    // is required and we haven't found it in the sinks.
     if (propertiesToLookFor.find("audio-fade") != propertiesToLookFor.end())
     {
-        bool socAudioFadeSupported = m_rdkGstreamerUtilsWrapper->isSocAudioFadeSupported();
+        bool socAudioFadeSupported = m_platformBackend->isAudioFadeSupported();
         if (socAudioFadeSupported)
         {
             RIALTO_SERVER_LOG_DEBUG("Audio fade property is supported by the SoC");

@@ -165,6 +165,7 @@ set_target_properties(RialtoServerGstPlayerUnitTests PROPERTIES COMPILE_FLAGS "-
 # loader's real dlopen / dlsym / version-check path is exercised end to end.
 # ---------------------------------------------------------------------------
 set(_platform_interface_dir ${CMAKE_SOURCE_DIR}/media/server/platform/interface)
+set(_media_public_include_dir ${CMAKE_SOURCE_DIR}/media/public/include)
 set(_fixture_src platform/fixtures/PlatformBackendFixture.cpp)
 
 add_library(PlatformBackendFixtureMatch SHARED ${_fixture_src})
@@ -175,7 +176,7 @@ target_compile_definitions(PlatformBackendFixtureMismatch PRIVATE FIXTURE_MISMAT
 target_compile_definitions(PlatformBackendFixtureNoSym PRIVATE FIXTURE_OMIT_VERSION)
 
 foreach(_fx PlatformBackendFixtureMatch PlatformBackendFixtureMismatch PlatformBackendFixtureNoSym)
-    target_include_directories(${_fx} PRIVATE ${_platform_interface_dir})
+    target_include_directories(${_fx} PRIVATE ${_platform_interface_dir} ${_media_public_include_dir})
     set_target_properties(${_fx} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endforeach()
 
