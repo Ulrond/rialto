@@ -25,7 +25,6 @@
 #include "IGstInitialiser.h"
 #include "IGstWrapper.h"
 #include "IPlatformBackend.h"
-#include "IRdkGstreamerUtilsWrapper.h"
 
 #include <condition_variable>
 #include <memory>
@@ -59,11 +58,10 @@ public:
 class GstCapabilities : public IGstCapabilities
 {
 public:
-    explicit GstCapabilities(
-        const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
-        const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-        const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-        const IGstInitialiser &gstInitialiser, const std::shared_ptr<IPlatformBackend> &platformBackend);
+    explicit GstCapabilities(const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
+                             const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
+                             const IGstInitialiser &gstInitialiser,
+                             const std::shared_ptr<IPlatformBackend> &platformBackend);
     ~GstCapabilities();
 
     GstCapabilities(const GstCapabilities &) = delete;
@@ -155,7 +153,6 @@ private:
      */
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;
     std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> m_glibWrapper;
-    std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> m_rdkGstreamerUtilsWrapper;
     const IGstInitialiser &m_gstInitialiser;
 
     /**

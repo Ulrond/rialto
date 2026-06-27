@@ -96,3 +96,30 @@ TEST_F(LinuxPlatformBackendTest, ApplyPlaybackRateSendsInstantRateEventOnPipelin
 
     EXPECT_TRUE(m_sut.applyPlaybackRate(&m_pipeline, 1.25));
 }
+
+/**
+ * The reference backend has no SoC audio path that eases volume, so audio fade is not supported
+ * here (the engine uses the generic sink "audio-fade" property instead). SoC fade lives in a per-SoC .so.
+ */
+TEST_F(LinuxPlatformBackendTest, IsAudioFadeSupportedReturnsFalse)
+{
+    EXPECT_FALSE(m_sut.isAudioFadeSupported());
+}
+
+/**
+ * The reference backend performs no SoC audio fade: audioFade is a callable no-op. SoC fade lives in
+ * a per-SoC .so. The StrictMock guarantees no wrapper calls occur.
+ */
+TEST_F(LinuxPlatformBackendTest, AudioFadeIsNoOp)
+{
+    m_sut.audioFade(0.5, 1000, firebolt::rialto::EaseType::EASE_LINEAR);
+}
+
+/**
+ * The reference backend handles no SoC audio gap: processAudioGap returns false and performs no
+ * wrapper calls. SoC audio-gap handling lives in a per-SoC .so.
+ */
+TEST_F(LinuxPlatformBackendTest, ProcessAudioGapReturnsFalse)
+{
+    EXPECT_FALSE(m_sut.processAudioGap(&m_pipeline, 123, 456, 789, true));
+}

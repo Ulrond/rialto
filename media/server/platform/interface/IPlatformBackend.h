@@ -20,6 +20,8 @@
 #ifndef FIREBOLT_RIALTO_SERVER_I_PLATFORM_BACKEND_H_
 #define FIREBOLT_RIALTO_SERVER_I_PLATFORM_BACKEND_H_
 
+#include "MediaCommon.h"
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -45,8 +47,10 @@ namespace firebolt::rialto::server
  * the backend to make the platform's sinks and to report its capability flags.
  *
  * Versioning is additive: v3 grows the seam with capability flags (isVideoMaster)
- * on top of v2's sink creation. New methods are appended; existing ones are frozen,
- * so a v2 backend stays valid against v2 cases.
+ * on top of v2's sink creation; v4 grows it further with the live-graph audio ops
+ * (isAudioFadeSupported / audioFade / processAudioGap), moving the last SoC audio
+ * knowledge out of the engine core. New methods are appended; existing ones are
+ * frozen, so a v2 backend stays valid against v2 cases.
  *
  * The backend is loaded as a separate `.so` via the extern "C" entrypoints below
  * and version-checked, so a vendor layer can be upgraded without rebuilding or
@@ -58,7 +62,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 3;
+constexpr uint32_t kPlatformBackendAbiVersion = 4;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -138,6 +142,48 @@ public:
      * @retval true if the rate-change event was sent successfully, false otherwise.
      */
     virtual bool applyPlaybackRate(GstElement *pipeline, double rate) = 0;
+
+    /**
+     * @brief Whether the platform's SoC audio path performs audio fade/easing (ABI v4).
+     *
+     * A SoC capability flag: device backends whose audio path eases volume in hardware/firmware
+     * answer true; the Linux reference backend has no such path and returns false, so the engine
+     * uses the generic sink "audio-fade" property instead. The core names no SoC.
+     *
+     * @retval true if the platform performs SoC audio fade, false otherwise.
+     */
+    virtual bool isAudioFadeSupported() const = 0;
+
+    /**
+     * @brief Applies a SoC audio fade/easing the platform's way (ABI v4).
+     *
+     * Only called when isAudioFadeSupported() is true. Device backends ease the volume through
+     * their SoC audio path; the Linux reference backend has no such path and is a no-op. The
+     * engine asks the backend to fade so it names no SoC.
+     *
+     * @param[in] target   : The target volume to fade to.
+     * @param[in] duration : The fade duration.
+     * @param[in] easeType : The easing curve to apply.
+     */
+    virtual void audioFade(double target, uint32_t duration, firebolt::rialto::EaseType easeType) = 0;
+
+    /**
+     * @brief Handles an audio gap/discontinuity the platform's way (ABI v4).
+     *
+     * Device backends bridge the gap through their SoC audio path; the Linux reference backend has
+     * no such path and is a no-op returning false. The engine asks the backend to handle the gap so
+     * it names no SoC; the backend uses the host GStreamer wrappers it was given.
+     *
+     * @param[in] pipeline        : The live pipeline the gap applies to.
+     * @param[in] position        : Audio pts gap position.
+     * @param[in] duration        : Audio pts gap duration.
+     * @param[in] discontinuityGap : Audio discontinuity gap.
+     * @param[in] audioAac        : True if the audio codec is AAC.
+     *
+     * @retval true if the platform handled the audio gap, false otherwise.
+     */
+    virtual bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration,
+                                 int64_t discontinuityGap, bool audioAac) = 0;
 
 protected:
     IPlatformBackend() = default;

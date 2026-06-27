@@ -34,6 +34,11 @@ public:
     MOCK_METHOD(GstElement *, createVideoSink, (const std::string &name, uint32_t videoId), (override));
     MOCK_METHOD(bool, isVideoMaster, (), (const, override));
     MOCK_METHOD(bool, applyPlaybackRate, (GstElement * pipeline, double rate), (override));
+    MOCK_METHOD(bool, isAudioFadeSupported, (), (const, override));
+    MOCK_METHOD(void, audioFade, (double target, uint32_t duration, firebolt::rialto::EaseType easeType), (override));
+    MOCK_METHOD(bool, processAudioGap,
+                (GstElement * pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap, bool audioAac),
+                (override));
 };
 } // namespace firebolt::rialto::server
 

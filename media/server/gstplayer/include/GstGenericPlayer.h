@@ -189,6 +189,10 @@ private:
     void cancelUnderflow(firebolt::rialto::MediaSourceType mediaSource) override;
     void setPendingPlaybackRate() override;
     bool applyPlaybackRate(double rate) override;
+    bool isAudioFadeSupported() const override;
+    void audioFade(double target, uint32_t duration, firebolt::rialto::EaseType easeType) override;
+    bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap,
+                         bool audioAac) override;
     void renderFrame() override;
     void handleBusMessage(GstMessage *message) override;
     void updatePlaybackGroup(GstElement *typefind, const GstCaps *caps) override;

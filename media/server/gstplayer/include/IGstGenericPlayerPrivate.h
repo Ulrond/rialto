@@ -268,6 +268,36 @@ public:
     virtual bool applyPlaybackRate(double rate) = 0;
 
     /**
+     * @brief Whether the platform's SoC audio path performs audio fade/easing (via the backend).
+     *
+     * @retval true if the platform performs SoC audio fade, false otherwise.
+     */
+    virtual bool isAudioFadeSupported() const = 0;
+
+    /**
+     * @brief Applies a SoC audio fade/easing via the platform backend (which names the SoC).
+     *
+     * @param[in] target   : The target volume to fade to.
+     * @param[in] duration : The fade duration.
+     * @param[in] easeType : The easing curve to apply.
+     */
+    virtual void audioFade(double target, uint32_t duration, firebolt::rialto::EaseType easeType) = 0;
+
+    /**
+     * @brief Handles an audio gap/discontinuity via the platform backend (which names the SoC).
+     *
+     * @param[in] pipeline        : The live pipeline the gap applies to.
+     * @param[in] position        : Audio pts gap position.
+     * @param[in] duration        : Audio pts gap duration.
+     * @param[in] discontinuityGap : Audio discontinuity gap.
+     * @param[in] audioAac        : True if the audio codec is AAC.
+     *
+     * @retval true if the platform handled the audio gap, false otherwise.
+     */
+    virtual bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap,
+                                 bool audioAac) = 0;
+
+    /**
      * @brief Updates Playback Group in PlayerContext.
      */
     virtual void updatePlaybackGroup(GstElement *typefind, const GstCaps *caps) = 0;

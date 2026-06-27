@@ -18,7 +18,6 @@
  */
 
 #include "tasks/generic/SetVolume.h"
-#include "IRdkGstreamerUtilsWrapper.h"
 #include "RialtoServerLogging.h"
 #include <cmath>
 #include <gst/gst.h>
@@ -28,12 +27,10 @@ namespace firebolt::rialto::server::tasks::generic
 {
 SetVolume::SetVolume(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
                      const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
-                     const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-                     const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-                     double targetVolume, uint32_t volumeDuration, firebolt::rialto::EaseType easeType)
+                     const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper, double targetVolume,
+                     uint32_t volumeDuration, firebolt::rialto::EaseType easeType)
     : m_context{context}, m_player{player}, m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper},
-      m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper}, m_targetVolume{targetVolume},
-      m_volumeDuration{volumeDuration}, m_easeType{easeType}
+      m_targetVolume{targetVolume}, m_volumeDuration{volumeDuration}, m_easeType{easeType}
 {
     RIALTO_SERVER_LOG_DEBUG("Constructing SetVolume");
 }
@@ -41,22 +38,6 @@ SetVolume::SetVolume(GenericPlayerContext &context, IGstGenericPlayerPrivate &pl
 SetVolume::~SetVolume()
 {
     RIALTO_SERVER_LOG_DEBUG("SetVolume finished");
-}
-
-firebolt::rialto::wrappers::rgu_Ease convertEaseTypeToRguEase(EaseType easeType)
-{
-    switch (easeType)
-    {
-    case EaseType::EASE_LINEAR:
-        return firebolt::rialto::wrappers::rgu_Ease::EaseLinear;
-    case EaseType::EASE_IN_CUBIC:
-        return firebolt::rialto::wrappers::rgu_Ease::EaseInCubic;
-    case EaseType::EASE_OUT_CUBIC:
-        return firebolt::rialto::wrappers::rgu_Ease::EaseOutCubic;
-    default:
-        RIALTO_SERVER_LOG_ERROR("Unknown EaseType, defaulting to EaseLinear");
-        return firebolt::rialto::wrappers::rgu_Ease::EaseLinear;
-    }
 }
 
 void SetVolume::execute() const
@@ -105,11 +86,10 @@ void SetVolume::execute() const
         m_context.audioFadeVolume = m_targetVolume;
         m_context.audioFadeEnabled = true;
     }
-    else if (m_rdkGstreamerUtilsWrapper->isSocAudioFadeSupported())
+    else if (m_player.isAudioFadeSupported())
     {
         RIALTO_SERVER_LOG_DEBUG("SOC audio fading is supported, applying SOC audio fade");
-        auto rguEaseType = convertEaseTypeToRguEase(m_easeType);
-        m_rdkGstreamerUtilsWrapper->doAudioEasingonSoc(m_targetVolume, m_volumeDuration, rguEaseType);
+        m_player.audioFade(m_targetVolume, m_volumeDuration, m_easeType);
         m_context.audioFadeVolume = m_targetVolume;
         m_context.audioFadeEnabled = true;
     }

@@ -50,6 +50,10 @@ public:
     GstElement *createVideoSink(const std::string &name, uint32_t videoId) override;
     bool isVideoMaster() const override;
     bool applyPlaybackRate(GstElement *pipeline, double rate) override;
+    bool isAudioFadeSupported() const override;
+    void audioFade(double target, uint32_t duration, firebolt::rialto::EaseType easeType) override;
+    bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap,
+                         bool audioAac) override;
 
 private:
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;

@@ -480,47 +480,25 @@ void GenericTasksTestsBase::shouldSetAudioFadeAndEaseTypeCubicOut()
     EXPECT_CALL(*testContext->m_gstWrapper, gstObjectUnref(GST_OBJECT(testContext->m_element)));
 }
 
-firebolt::rialto::wrappers::rgu_Ease convertEaseType(firebolt::rialto::EaseType easeType)
-{
-    switch (easeType)
-    {
-    case EaseType::EASE_LINEAR:
-        return firebolt::rialto::wrappers::rgu_Ease::EaseLinear;
-    case EaseType::EASE_IN_CUBIC:
-        return firebolt::rialto::wrappers::rgu_Ease::EaseInCubic;
-    case EaseType::EASE_OUT_CUBIC:
-        return firebolt::rialto::wrappers::rgu_Ease::EaseOutCubic;
-    default:
-        ADD_FAILURE() << "Invalid EaseType provided: " << static_cast<int>(easeType);
-        return firebolt::rialto::wrappers::rgu_Ease::EaseLinear;
-    }
-}
-
 void GenericTasksTestsBase::shouldSetAudioFadeInSocWithLinearEaseType()
 {
-    firebolt::rialto::wrappers::rgu_Ease convertedEaseType = convertEaseType(kEaseLinearType);
     EXPECT_CALL(testContext->m_gstPlayer, getSink(firebolt::rialto::MediaSourceType::AUDIO)).WillOnce(Return(nullptr));
-    EXPECT_CALL(*testContext->m_rdkGstreamerUtilsWrapper, isSocAudioFadeSupported()).WillOnce(Return(true));
-    EXPECT_CALL(*testContext->m_rdkGstreamerUtilsWrapper,
-                doAudioEasingonSoc(kVolume, kVolumeDuration, convertedEaseType));
+    EXPECT_CALL(testContext->m_gstPlayer, isAudioFadeSupported()).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, audioFade(kVolume, kVolumeDuration, kEaseLinearType));
 }
 
 void GenericTasksTestsBase::shouldSetAudioFadeInSocWithCubicInEaseType()
 {
-    firebolt::rialto::wrappers::rgu_Ease convertedEaseType = convertEaseType(kEaseInCubicType);
     EXPECT_CALL(testContext->m_gstPlayer, getSink(firebolt::rialto::MediaSourceType::AUDIO)).WillOnce(Return(nullptr));
-    EXPECT_CALL(*testContext->m_rdkGstreamerUtilsWrapper, isSocAudioFadeSupported()).WillOnce(Return(true));
-    EXPECT_CALL(*testContext->m_rdkGstreamerUtilsWrapper,
-                doAudioEasingonSoc(kVolume, kVolumeDuration, convertedEaseType));
+    EXPECT_CALL(testContext->m_gstPlayer, isAudioFadeSupported()).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, audioFade(kVolume, kVolumeDuration, kEaseInCubicType));
 }
 
 void GenericTasksTestsBase::shouldSetAudioFadeInSocWithCubicOutEaseType()
 {
-    firebolt::rialto::wrappers::rgu_Ease convertedEaseType = convertEaseType(kEaseOutCubicType);
     EXPECT_CALL(testContext->m_gstPlayer, getSink(firebolt::rialto::MediaSourceType::AUDIO)).WillOnce(Return(nullptr));
-    EXPECT_CALL(*testContext->m_rdkGstreamerUtilsWrapper, isSocAudioFadeSupported()).WillOnce(Return(true));
-    EXPECT_CALL(*testContext->m_rdkGstreamerUtilsWrapper,
-                doAudioEasingonSoc(kVolume, kVolumeDuration, convertedEaseType));
+    EXPECT_CALL(testContext->m_gstPlayer, isAudioFadeSupported()).WillOnce(Return(true));
+    EXPECT_CALL(testContext->m_gstPlayer, audioFade(kVolume, kVolumeDuration, kEaseOutCubicType));
 }
 
 void GenericTasksTestsBase::shouldSetGstVolume()
@@ -535,7 +513,6 @@ void GenericTasksTestsBase::triggerSetVolume()
                                                              testContext->m_gstPlayer,
                                                              testContext->m_gstWrapper,
                                                              testContext->m_glibWrapper,
-                                                             testContext->m_rdkGstreamerUtilsWrapper,
                                                              kVolume,
                                                              kNoVolumeDuration,
                                                              kEaseLinearType};
@@ -548,7 +525,6 @@ void GenericTasksTestsBase::triggerSetVolumeEaseTypeLinear()
                                                              testContext->m_gstPlayer,
                                                              testContext->m_gstWrapper,
                                                              testContext->m_glibWrapper,
-                                                             testContext->m_rdkGstreamerUtilsWrapper,
                                                              kVolume,
                                                              kVolumeDuration,
                                                              kEaseLinearType};
@@ -561,7 +537,6 @@ void GenericTasksTestsBase::triggerSetVolumeEaseTypeCubicIn()
                                                              testContext->m_gstPlayer,
                                                              testContext->m_gstWrapper,
                                                              testContext->m_glibWrapper,
-                                                             testContext->m_rdkGstreamerUtilsWrapper,
                                                              kVolume,
                                                              kVolumeDuration,
                                                              kEaseInCubicType};
@@ -574,7 +549,6 @@ void GenericTasksTestsBase::triggerSetVolumeEaseTypeCubicOut()
                                                              testContext->m_gstPlayer,
                                                              testContext->m_gstWrapper,
                                                              testContext->m_glibWrapper,
-                                                             testContext->m_rdkGstreamerUtilsWrapper,
                                                              kVolume,
                                                              kVolumeDuration,
                                                              kEaseOutCubicType};
@@ -2216,9 +2190,9 @@ void GenericTasksTestsBase::triggerSetSubtitleOffset()
 void GenericTasksTestsBase::triggerProcessAudioGap()
 {
     firebolt::rialto::server::tasks::generic::ProcessAudioGap task{testContext->m_context,
+                                                                   testContext->m_gstPlayer,
                                                                    testContext->m_gstWrapper,
                                                                    testContext->m_glibWrapper,
-                                                                   testContext->m_rdkGstreamerUtilsWrapper,
                                                                    kPosition,
                                                                    static_cast<uint32_t>(kDuration),
                                                                    kDiscontinuityGap,
@@ -2228,7 +2202,7 @@ void GenericTasksTestsBase::triggerProcessAudioGap()
 
 void GenericTasksTestsBase::shouldProcessAudioGap()
 {
-    EXPECT_CALL(*(testContext->m_rdkGstreamerUtilsWrapper),
+    EXPECT_CALL(testContext->m_gstPlayer,
                 processAudioGap(testContext->m_context.pipeline, kPosition, static_cast<uint32_t>(kDuration),
                                 kDiscontinuityGap, kIsAudioAac));
 }

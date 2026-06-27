@@ -22,14 +22,13 @@
 
 namespace firebolt::rialto::server::tasks::generic
 {
-ProcessAudioGap::ProcessAudioGap(
-    GenericPlayerContext &context, const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
-    const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
-    const std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> &rdkGstreamerUtilsWrapper,
-    std::int64_t position, std::uint32_t duration, std::int64_t discontinuityGap, bool audioAac)
-    : m_context{context}, m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper},
-      m_rdkGstreamerUtilsWrapper{rdkGstreamerUtilsWrapper}, m_position{position}, m_duration{duration},
-      m_discontinuityGap{discontinuityGap}, m_audioAac{audioAac}
+ProcessAudioGap::ProcessAudioGap(GenericPlayerContext &context, IGstGenericPlayerPrivate &player,
+                                 const std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> &gstWrapper,
+                                 const std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> &glibWrapper,
+                                 std::int64_t position, std::uint32_t duration, std::int64_t discontinuityGap,
+                                 bool audioAac)
+    : m_context{context}, m_player{player}, m_gstWrapper{gstWrapper}, m_glibWrapper{glibWrapper}, m_position{position},
+      m_duration{duration}, m_discontinuityGap{discontinuityGap}, m_audioAac{audioAac}
 {
     RIALTO_SERVER_LOG_DEBUG("Constructing ProcessAudioGap");
 }
@@ -47,7 +46,6 @@ void ProcessAudioGap::execute() const
         RIALTO_SERVER_LOG_ERROR("Process audio gap failed - pipeline is null");
         return;
     }
-    m_rdkGstreamerUtilsWrapper->processAudioGap(m_context.pipeline, m_position, m_duration, m_discontinuityGap,
-                                                m_audioAac);
+    m_player.processAudioGap(m_context.pipeline, m_position, m_duration, m_discontinuityGap, m_audioAac);
 }
 } // namespace firebolt::rialto::server::tasks::generic

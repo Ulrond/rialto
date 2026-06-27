@@ -140,7 +140,6 @@ std::unique_ptr<IGstGenericPlayer> GstGenericPlayerFactory::createGstGenericPlay
                               IGstSrcFactory::getFactory(), IGstProfilerFactory::getFactory(),
                               common::ITimerFactory::getFactory(),
                               std::make_unique<GenericPlayerTaskFactory>(client, gstWrapper, glibWrapper,
-                                                                         rdkGstreamerUtilsWrapper,
                                                                          IGstTextTrackSinkFactory::createFactory()),
                               std::make_unique<WorkerThreadFactory>(), std::make_unique<GstDispatcherThreadFactory>(),
                               IGstProtectionMetadataHelperFactory::createFactory(), platformBackend);
@@ -2612,6 +2611,32 @@ bool GstGenericPlayer::applyPlaybackRate(double rate)
     return m_platformBackend->applyPlaybackRate(m_context.pipeline, rate);
 }
 
+bool GstGenericPlayer::isAudioFadeSupported() const
+{
+    return m_platformBackend ? m_platformBackend->isAudioFadeSupported() : false;
+}
+
+void GstGenericPlayer::audioFade(double target, uint32_t duration, firebolt::rialto::EaseType easeType)
+{
+    if (!m_platformBackend)
+    {
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot apply audio fade");
+        return;
+    }
+    m_platformBackend->audioFade(target, duration, easeType);
+}
+
+bool GstGenericPlayer::processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration,
+                                       int64_t discontinuityGap, bool audioAac)
+{
+    if (!m_platformBackend)
+    {
+        RIALTO_SERVER_LOG_ERROR("No platform backend; cannot process audio gap");
+        return false;
+    }
+    return m_platformBackend->processAudioGap(pipeline, position, duration, discontinuityGap, audioAac);
+}
+
 void GstGenericPlayer::renderFrame()
 {
     if (m_workerThread)
@@ -2906,7 +2931,7 @@ void GstGenericPlayer::processAudioGap(int64_t position, uint32_t duration, int6
     if (m_workerThread)
     {
         m_workerThread->enqueueTask(
-            m_taskFactory->createProcessAudioGap(m_context, position, duration, discontinuityGap, audioAac));
+            m_taskFactory->createProcessAudioGap(m_context, *this, position, duration, discontinuityGap, audioAac));
     }
 }
 

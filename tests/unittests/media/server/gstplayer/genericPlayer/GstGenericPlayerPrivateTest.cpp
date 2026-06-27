@@ -342,6 +342,33 @@ TEST_F(GstGenericPlayerPrivateTest, shouldApplyPlaybackRateViaPlatformBackend)
     EXPECT_TRUE(m_sut->applyPlaybackRate(1.25));
 }
 
+TEST_F(GstGenericPlayerPrivateTest, shouldReportAudioFadeSupportViaPlatformBackend)
+{
+    EXPECT_CALL(*m_platformBackendMock, isAudioFadeSupported()).WillOnce(Return(true));
+    EXPECT_TRUE(m_sut->isAudioFadeSupported());
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldApplyAudioFadeViaPlatformBackend)
+{
+    constexpr double kTarget{0.5};
+    constexpr uint32_t kDuration{1000};
+    constexpr firebolt::rialto::EaseType kEaseType{firebolt::rialto::EaseType::EASE_LINEAR};
+    EXPECT_CALL(*m_platformBackendMock, audioFade(kTarget, kDuration, kEaseType));
+    m_sut->audioFade(kTarget, kDuration, kEaseType);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldProcessAudioGapViaPlatformBackend)
+{
+    constexpr int64_t kPosition{123};
+    constexpr uint32_t kDuration{456};
+    constexpr int64_t kDiscontinuityGap{789};
+    constexpr bool kAudioAac{true};
+    EXPECT_CALL(*m_platformBackendMock,
+                processAudioGap(&m_pipeline, kPosition, kDuration, kDiscontinuityGap, kAudioAac))
+        .WillOnce(Return(true));
+    EXPECT_TRUE(m_sut->processAudioGap(&m_pipeline, kPosition, kDuration, kDiscontinuityGap, kAudioAac));
+}
+
 TEST_F(GstGenericPlayerPrivateTest, shouldNotSetVideoRectangleWhenVideoSinkDoesNotHaveRectangleProperty)
 {
     expectGetAVSink(kVideoSinkStr, m_realElement);

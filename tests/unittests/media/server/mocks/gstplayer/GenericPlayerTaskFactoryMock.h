@@ -121,8 +121,8 @@ public:
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetSubtitleOffset,
                 (GenericPlayerContext & context, std::int64_t position), (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createProcessAudioGap,
-                (GenericPlayerContext & context, std::int64_t position, std::uint32_t duration,
-                 std::int64_t discontinuityGap, bool isAudioAac),
+                (GenericPlayerContext & context, IGstGenericPlayerPrivate &player, std::int64_t position,
+                 std::uint32_t duration, std::int64_t discontinuityGap, bool isAudioAac),
                 (const, override));
     MOCK_METHOD(std::unique_ptr<IPlayerTask>, createSetTextTrackIdentifier,
                 (GenericPlayerContext & context, const std::string &textTrackIdentifier), (const, override));

@@ -25,8 +25,6 @@
 #include "GstWrapperMock.h"
 #include "IFactoryAccessor.h"
 #include "PlatformBackendMock.h"
-#include "RdkGstreamerUtilsWrapperFactoryMock.h"
-#include "RdkGstreamerUtilsWrapperMock.h"
 
 #include <condition_variable>
 #include <gtest/gtest.h>
@@ -94,7 +92,6 @@ public:
     {
         IFactoryAccessor::instance().gstWrapperFactory() = m_gstWrapperFactoryMock;
         IFactoryAccessor::instance().glibWrapperFactory() = m_glibWrapperFactoryMock;
-        IFactoryAccessor::instance().rdkGstreamerUtilsWrapperFactory() = m_rdkGstreamerUtilsWrapperFactoryMock;
         memset(&m_object, 0x00, sizeof(m_object));
         m_elementFactory = gst_element_factory_find("fakesrc");
     }
@@ -103,7 +100,6 @@ public:
     {
         IFactoryAccessor::instance().gstWrapperFactory() = nullptr;
         IFactoryAccessor::instance().glibWrapperFactory() = nullptr;
-        IFactoryAccessor::instance().rdkGstreamerUtilsWrapperFactory() = nullptr;
     }
 
     void expectCapsToMimeMapping()
@@ -172,8 +168,8 @@ public:
                 }));
         EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-        m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                                  m_gstInitialiserMock, platformBackend);
+        m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                                   platformBackend);
         std::unique_lock lock{mutex};
         cv.wait_for(lock, std::chrono::milliseconds{200}, [&]() { return initialised; });
     }
@@ -197,14 +193,10 @@ public:
         std::make_shared<StrictMock<GstWrapperFactoryMock>>()};
     std::shared_ptr<StrictMock<GlibWrapperFactoryMock>> m_glibWrapperFactoryMock{
         std::make_shared<StrictMock<GlibWrapperFactoryMock>>()};
-    std::shared_ptr<StrictMock<RdkGstreamerUtilsWrapperFactoryMock>> m_rdkGstreamerUtilsWrapperFactoryMock{
-        std::make_shared<StrictMock<RdkGstreamerUtilsWrapperFactoryMock>>()};
     StrictMock<GstInitialiserMock> m_gstInitialiserMock;
     std::unordered_map<std::string, GstCaps> m_capsMap;
     std::unique_ptr<GstCapabilities> m_sut;
     std::shared_ptr<StrictMock<GlibWrapperMock>> m_glibWrapperMock{std::make_shared<StrictMock<GlibWrapperMock>>()};
-    std::shared_ptr<StrictMock<RdkGstreamerUtilsWrapperMock>> m_rdkGstreamerUtilsWrapperMock{
-        std::make_shared<StrictMock<RdkGstreamerUtilsWrapperMock>>()};
     std::shared_ptr<StrictMock<PlatformBackendMock>> m_platformBackendMock{
         std::make_shared<StrictMock<PlatformBackendMock>>()};
 
@@ -256,8 +248,6 @@ TEST_F(GstCapabilitiesTest, FactoryCreatesObject)
 {
     EXPECT_CALL(*m_gstWrapperFactoryMock, getGstWrapper()).WillOnce(Return(m_gstWrapperMock));
     EXPECT_CALL(*m_glibWrapperFactoryMock, getGlibWrapper()).WillOnce(Return(m_glibWrapperMock));
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperFactoryMock, createRdkGstreamerUtilsWrapper())
-        .WillOnce(Return(m_rdkGstreamerUtilsWrapperMock));
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListGetElements(GST_ELEMENT_FACTORY_TYPE_DECODER, GST_RANK_MARGINAL))
         .WillOnce(Return(nullptr));
 
@@ -300,8 +290,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OnlyOneSinkElement)
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::AUDIO), UnorderedElementsAre("audio/x-raw"));
 
@@ -321,8 +311,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OnlyOneDecoderWithNoPads)
         .WillOnce(Return(nullptr));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_TRUE(m_sut->getSupportedMimeTypes(MediaSourceType::AUDIO).empty());
 
@@ -360,8 +350,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OnlyOneDecoderWithTwoSinkPadsA
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::AUDIO),
                 UnorderedElementsAre("audio/mp4", "audio/aac", "audio/x-eac3", "audio/x-opus"));
@@ -436,7 +426,7 @@ TEST_F(GstCapabilitiesTest, getSupportedPropertiesWithAudioFadeProperty)
     EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
         .WillOnce(DoAll(SetArgPointee<1>(kNumParamsSupportedByServer), Return(dummySinkParamsPtr)));
     EXPECT_CALL(*m_glibWrapperMock, gFree(dummySinkParamsPtr)).Times(1);
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock, isSocAudioFadeSupported()).WillOnce(Return(true));
+    EXPECT_CALL(*m_platformBackendMock, isAudioFadeSupported()).WillOnce(Return(true));
 
     std::vector<std::string> kParamNames{"test-name-123", "test2", "audio-fade"};
     std::vector<std::string> supportedProperties{m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames)};
@@ -460,7 +450,7 @@ TEST_F(GstCapabilitiesTest, getSupportedPropertiesWithNoPropertiesSupported)
     EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
         .WillRepeatedly(DoAll(SetArgPointee<1>(kNumParamsSupportedByServer), Return(dummySinkParamsPtr)));
     EXPECT_CALL(*m_glibWrapperMock, gFree(dummySinkParamsPtr)).Times(1);
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock, isSocAudioFadeSupported()).WillOnce(Return(false));
+    EXPECT_CALL(*m_platformBackendMock, isAudioFadeSupported()).WillOnce(Return(false));
 
     std::vector<std::string> kParamNames{"test-name-123", "test2", "audio-fade"};
     std::vector<std::string> supportedProperties{m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames)};
@@ -497,8 +487,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OnlyOneDecoderWithTwoPadsWithT
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::AUDIO),
                 UnorderedElementsAre("audio/mp4", "audio/aac", "audio/x-eac3"));
@@ -540,8 +530,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OneDecoderWithOneSinkPad_Parse
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::VIDEO), UnorderedElementsAre("video/h264", "video/h265"));
 
@@ -595,8 +585,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OneDecoderWithOneSinkPad_Parse
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::VIDEO), UnorderedElementsAre("video/h264", "video/h265"));
 
@@ -633,8 +623,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OneDecoderWithOneSinkPad_Parse
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::VIDEO), UnorderedElementsAre("video/mp4"));
 
@@ -675,8 +665,8 @@ TEST_F(GstCapabilitiesTest,
         .WillOnce(Return(false));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_TRUE(m_sut->getSupportedMimeTypes(MediaSourceType::AUDIO).empty());
 
@@ -736,8 +726,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_TwoDecodersWithOneSinkPad_Pars
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::VIDEO), UnorderedElementsAre("video/h264", "video/h265"));
 
@@ -790,8 +780,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OneDecodersWithOneSinkPad_Pars
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::VIDEO), UnorderedElementsAre("video/h264", "video/h265"));
 
@@ -861,8 +851,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OneDecodersWithOneSinkPads_Two
         .WillOnce(Return(true));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_THAT(m_sut->getSupportedMimeTypes(MediaSourceType::VIDEO),
                 UnorderedElementsAre("video/h264", "video/h265", "video/x-av1"));
@@ -883,8 +873,8 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_GetSubtitlesMimeTypes)
         .WillOnce(Return(nullptr));
     EXPECT_CALL(m_gstInitialiserMock, waitForInitialisation());
 
-    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_rdkGstreamerUtilsWrapperMock,
-                                              m_gstInitialiserMock, m_platformBackendMock);
+    m_sut = std::make_unique<GstCapabilities>(m_gstWrapperMock, m_glibWrapperMock, m_gstInitialiserMock,
+                                               m_platformBackendMock);
 
     EXPECT_EQ(m_sut->getSupportedMimeTypes(MediaSourceType::SUBTITLE), kSubtitleMimeTypes);
 }
