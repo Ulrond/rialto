@@ -39,6 +39,7 @@ public:
     MOCK_METHOD(bool, processAudioGap,
                 (GstElement * pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap, bool audioAac),
                 (override));
+    MOCK_METHOD(bool, switchAudioCodec, (const AudioCodecSwitchContext &ctx), (override));
 };
 } // namespace firebolt::rialto::server
 

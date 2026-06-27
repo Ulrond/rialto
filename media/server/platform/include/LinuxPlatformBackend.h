@@ -23,8 +23,11 @@
 #include "IGlibWrapper.h"
 #include "IGstWrapper.h"
 #include "IPlatformBackend.h"
+#include "IRdkGstreamerUtilsWrapper.h"
 #include <memory>
 #include <string>
+
+typedef struct _GstCaps GstCaps;
 
 namespace firebolt::rialto::server
 {
@@ -54,10 +57,31 @@ public:
     void audioFade(double target, uint32_t duration, firebolt::rialto::EaseType easeType) override;
     bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap,
                          bool audioAac) override;
+    bool switchAudioCodec(const AudioCodecSwitchContext &ctx) override;
 
 private:
+    // Transitional amlhalasink fork helpers (moved verbatim out of the engine core; they will move
+    // down into a per-SoC .so once one is authored). They operate on a local PlaybackGroupPrivate
+    // built from the neutral AudioCodecSwitchContext, not on any engine state.
+    void configAudioCap(firebolt::rialto::wrappers::AudioAttributesPrivate *pAttrib, bool *audioaac, bool svpenabled,
+                        GstCaps **appsrcCaps);
+    void haltAudioPlayback(firebolt::rialto::wrappers::PlaybackGroupPrivate &group);
+    void resumeAudioPlayback(firebolt::rialto::wrappers::PlaybackGroupPrivate &group);
+    void firstTimeSwitchFromAC3toAAC(firebolt::rialto::wrappers::PlaybackGroupPrivate &group, GstCaps *newAudioCaps);
+    bool applyAudioCodecSwitch(firebolt::rialto::wrappers::PlaybackGroupPrivate &group, bool isAudioAAC,
+                               GstCaps *newAudioCaps);
+    bool performAudioTrackCodecChannelSwitch(firebolt::rialto::wrappers::PlaybackGroupPrivate &group,
+                                             const void *pSampleAttr,
+                                             firebolt::rialto::wrappers::AudioAttributesPrivate *pAudioAttr,
+                                             uint32_t *pStatus, unsigned int *pui32Delay,
+                                             long long *pAudioChangeTargetPts, // NOLINT(runtime/int)
+                                             const long long *pcurrentDispPts, // NOLINT(runtime/int)
+                                             unsigned int *audioChangeStage, GstCaps **appsrcCaps, bool *audioaac,
+                                             bool svpenabled, GstElement *aSrc, bool *ret);
+
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> m_gstWrapper;
     std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> m_glibWrapper;
+    std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> m_rdkGstreamerUtilsWrapper;
 };
 
 } // namespace firebolt::rialto::server

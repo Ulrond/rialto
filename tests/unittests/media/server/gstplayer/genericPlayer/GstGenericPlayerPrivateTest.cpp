@@ -27,7 +27,9 @@
 #include <gst/audio/audio.h>
 
 using testing::_;
+using testing::AllOf;
 using testing::ByMove;
+using testing::Field;
 using testing::Invoke;
 using testing::Return;
 using testing::StrEq;
@@ -137,8 +139,7 @@ protected:
         gstPlayerWillBeCreated();
         m_sut = std::make_unique<GstGenericPlayer>(&m_gstPlayerClient, m_decryptionServiceMock, MediaType::MSE,
                                                    m_videoReq, kIsLive, m_gstWrapperMock, m_glibWrapperMock,
-                                                   m_rdkGstreamerUtilsWrapperMock, m_gstInitialiserMock,
-                                                   std::move(m_flushWatcher), m_gstSrcFactoryMock,
+                                                   m_gstInitialiserMock, std::move(m_flushWatcher), m_gstSrcFactoryMock,
                                                    m_gstProfilerFactoryMock, m_timerFactoryMock, std::move(m_taskFactory),
                                                    std::move(workerThreadFactory), std::move(gstDispatcherThreadFactory),
                                                    m_gstProtectionMetadataFactoryMock, m_platformBackendMock);
@@ -1932,72 +1933,57 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSkipReattachingAudioSource)
 
 TEST_F(GstGenericPlayerPrivateTest, shouldReattachMpegAudioSource)
 {
+    // After the ABI v5 fold, reattachSource delegates the codec switch to the platform backend: it
+    // builds a neutral AudioCodecSwitchContext (the backend reads the playsink-bin name and picks the
+    // amlhalasink fork or the rdk-gstreamer-utils path itself). The engine names no SoC.
     GstAppSrc audioSrc{};
     GstCaps newGstCaps{};
     GstCaps oldGstCaps{};
-    gchar capsStr[13]{"audio/x-eac3"};
-    GstElement *fakeSink = gst_element_factory_make("fakesink", "fakesink");
     setPipelineState(GST_STATE_PAUSED);
-    firebolt::rialto::wrappers::PlaybackGroupPrivate *playbackGroup;
-    modifyContext(
-        [&](GenericPlayerContext &context)
-        {
-            context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
-            playbackGroup = &context.playbackGroup;
-        });
+    modifyContext([&](GenericPlayerContext &context)
+                  { context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc); });
     expectRefreshAudioPlaybackGroupHandlesEmpty();
 
     EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&newGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsSetSimpleIntStub(&newGstCaps, StrEq("mpegversion"), G_TYPE_INT, 4));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
     EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
     EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
     EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-        .WillOnce(Invoke([&](gpointer object, const gchar *first_property_name, void *element)
-                         { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("fakesink"), StrEq("amlhalasink"))).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
-                performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
+    EXPECT_CALL(*m_platformBackendMock,
+                switchAudioCodec(Field(&AudioCodecSwitchContext::audioAppSrc, GST_ELEMENT(&audioSrc))))
         .WillOnce(Return(true));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
 
     std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
         std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/aac", false);
     EXPECT_TRUE(m_sut->reattachSource(source));
-    gst_object_unref(fakeSink);
 }
 
 TEST_F(GstGenericPlayerPrivateTest, shouldRefreshPlaybackGroupHandlesOnExplicitReattach)
 {
     // On the explicit-construction path there are no playbin signals (deep-element-added / typefind
     // have-type) to populate the playback group the codec-switch machinery reads. reattachSource must
-    // refresh the audio decoder/parser/typefind from the live decodebin before the switch so the
-    // external rdk-gstreamer-utils performAudioTrackCodecChannelSwitch operates on current elements.
+    // refresh the audio decoder/parser/typefind from the live decodebin before the switch and hand them
+    // to the backend through the neutral AudioCodecSwitchContext.
     GstAppSrc audioSrc{};
     GstCaps newGstCaps{};
     GstCaps oldGstCaps{};
-    gchar capsStr[13]{"audio/x-eac3"};
     GstElement decodebin{};
     GstElement audioDecoder{};
     GstElement audioParse{};
     GstElement audioTypefind{};
     GstIterator typefindIt{};
     gchar typefindName[]{"audiotypefind0"};
-    GstElement *fakeSink = gst_element_factory_make("fakesink", "fakesink");
     setPipelineState(GST_STATE_PAUSED);
     firebolt::rialto::wrappers::PlaybackGroupPrivate *playbackGroup{nullptr};
     modifyContext(
         [&](GenericPlayerContext &context)
         {
-            context.audioSink = fakeSink;
             context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
             context.playbackGroup.m_curAudioDecodeBin = &decodebin;
             playbackGroup = &context.playbackGroup;
@@ -2048,21 +2034,15 @@ TEST_F(GstGenericPlayerPrivateTest, shouldRefreshPlaybackGroupHandlesOnExplicitR
     EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
 
-    // getSink(AUDIO) on the explicit path returns the stored backend sink directly (no playbin read).
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(GST_OBJECT(fakeSink))).WillOnce(Return(fakeSink));
-    // Unref'd twice: once in reattachSource after getSink, and once by termPipeline at teardown (the sink
-    // is stored as m_context.audioSink here).
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink)).Times(2);
-    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("fakesink"), StrEq("amlhalasink"))).WillOnce(Return(FALSE));
-
-    // The external vendor wrapper receives the now-populated playback group.
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
-                performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
+    // The backend receives the now-populated live decoder/parser/typefind through the neutral context.
+    EXPECT_CALL(*m_platformBackendMock,
+                switchAudioCodec(AllOf(Field(&AudioCodecSwitchContext::audioDecoder, &audioDecoder),
+                                       Field(&AudioCodecSwitchContext::audioParse, &audioParse),
+                                       Field(&AudioCodecSwitchContext::audioTypefind, &audioTypefind),
+                                       Field(&AudioCodecSwitchContext::audioDecodeBin, &decodebin))))
         .WillOnce(Return(true));
 
     std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
@@ -2073,7 +2053,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldRefreshPlaybackGroupHandlesOnExplicitR
     EXPECT_EQ(playbackGroup->m_curAudioDecoder, &audioDecoder);
     EXPECT_EQ(playbackGroup->m_curAudioParse, &audioParse);
     EXPECT_EQ(playbackGroup->m_curAudioTypefind, &audioTypefind);
-    gst_object_unref(fakeSink);
 }
 
 TEST_F(GstGenericPlayerPrivateTest, shouldReattachEac3AudioSource)
@@ -2081,43 +2060,28 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachEac3AudioSource)
     GstAppSrc audioSrc{};
     GstCaps newGstCaps{};
     GstCaps oldGstCaps{};
-    gchar capsStr[11]{"audio/mpeg"};
-    GstElement *fakeSink = gst_element_factory_make("fakesink", "fakesink0");
     setPipelineState(GST_STATE_PAUSED);
-    firebolt::rialto::wrappers::PlaybackGroupPrivate *playbackGroup;
-    modifyContext(
-        [&](GenericPlayerContext &context)
-        {
-            context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
-            playbackGroup = &context.playbackGroup;
-        });
+    modifyContext([&](GenericPlayerContext &context)
+                  { context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc); });
     expectRefreshAudioPlaybackGroupHandlesEmpty();
 
     EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/x-eac3"))).WillOnce(Return(&newGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
     EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
     EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
     EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-        .WillOnce(Invoke([&](gpointer object, const gchar *first_property_name, void *element)
-                         { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("amlhalasink"))).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
-                performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
+    EXPECT_CALL(*m_platformBackendMock,
+                switchAudioCodec(Field(&AudioCodecSwitchContext::codecParam, StrEq("ec-3"))))
         .WillOnce(Return(true));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
 
     std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
         std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/x-eac3", false);
     EXPECT_TRUE(m_sut->reattachSource(source));
-    gst_object_unref(fakeSink);
 }
 
 TEST_F(GstGenericPlayerPrivateTest, shouldReattachRawAudioSource)
@@ -2125,240 +2089,97 @@ TEST_F(GstGenericPlayerPrivateTest, shouldReattachRawAudioSource)
     GstAppSrc audioSrc{};
     GstCaps newGstCaps{};
     GstCaps oldGstCaps{};
-    gchar capsStr[11]{"audio/mpeg"};
-    GstElement *fakeSink = gst_element_factory_make("fakesink", "fakesink1");
     setPipelineState(GST_STATE_PAUSED);
-    firebolt::rialto::wrappers::PlaybackGroupPrivate *playbackGroup;
-    modifyContext(
-        [&](GenericPlayerContext &context)
-        {
-            context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
-            playbackGroup = &context.playbackGroup;
-        });
+    modifyContext([&](GenericPlayerContext &context)
+                  { context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc); });
     expectRefreshAudioPlaybackGroupHandlesEmpty();
 
     EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/x-raw"))).WillOnce(Return(&newGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
     EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
     EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
     EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-        .WillOnce(Invoke([&](gpointer object, const gchar *first_property_name, void *element)
-                         { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("amlhalasink"))).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock,
-                performAudioTrackCodecChannelSwitch(playbackGroup, _, _, _, _, _, _, _, _, _, _, _, _))
+    EXPECT_CALL(*m_platformBackendMock,
+                switchAudioCodec(Field(&AudioCodecSwitchContext::codecParam, StrEq("lpcm"))))
         .WillOnce(Return(true));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
 
     std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
         std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/x-raw", false);
     EXPECT_TRUE(m_sut->reattachSource(source));
-    gst_object_unref(fakeSink);
 }
 
-TEST_F(GstGenericPlayerPrivateTest, shouldReattachAmlhalasinkAudioSourceNoCodecSwitch)
+TEST_F(GstGenericPlayerPrivateTest, shouldReattachAudioSourceAndForwardPlaybackGroupHandlesToBackend)
 {
+    // The amlhalasink fork vs rdk-gstreamer-utils dispatch now lives inside the backend; the engine
+    // forwards the live playsink-bin handle (and isAudioAacState bit) through the neutral context.
     GstAppSrc audioSrc{};
     GstCaps newGstCaps{};
     GstCaps oldGstCaps{};
-    GstCaps configCaps{};
-    GstEvent flushStartEvent{};
-    GstEvent flushStopEvent{};
-    gchar capsStr[11]{"audio/mpeg"}; // old caps was AAC
-    gchar configCapsStr[] = "audio/mpeg, mpegversion=4, enable-svp=(string)true";
-    GstElement *fakeSink = gst_element_factory_make("fakesink", "amlhalasink0");
+    GstElement playsinkBin{};
     setPipelineState(GST_STATE_PAUSED);
     modifyContext(
         [&](GenericPlayerContext &context)
         {
             context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
-            context.playbackGroup.m_isAudioAAC = true; // current codec is AAC
+            context.playbackGroup.m_isAudioAAC = true;
+            context.playbackGroup.m_curAudioPlaysinkBin = &playsinkBin;
         });
     expectRefreshAudioPlaybackGroupHandlesEmpty();
 
-    // createCapsFromMediaSource for audio/aac
     EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&newGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsSetSimpleIntStub(&newGstCaps, StrEq("mpegversion"), G_TYPE_INT, 4));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
-    // getPosition
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
     EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
     EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
     EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
     EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
-    // getSink
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-        .WillOnce(Invoke([&](gpointer, const gchar *, void *element)
-                         { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    // amlhalasink path
-    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("amlhalasink0"), StrEq("amlhalasink"))).WillOnce(Return(TRUE));
-    // performAudioTrackCodecChannelSwitch (AAC->AAC, no codec switch):
-    // configAudioCap unrefs original caps and creates new ones
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
-    EXPECT_CALL(*m_glibWrapperMock, gStrdupPrintfStub(_)).WillOnce(Return(configCapsStr));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsFromString(configCapsStr)).WillOnce(Return(&configCaps));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(configCapsStr));
-    // flush events
-    EXPECT_CALL(*m_gstWrapperMock, gstEventNewFlushStart()).WillOnce(Return(&flushStartEvent));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(GST_ELEMENT(&audioSrc), &flushStartEvent)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstEventNewFlushStop(kResetTime)).WillOnce(Return(&flushStopEvent));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(GST_ELEMENT(&audioSrc), &flushStopEvent)).WillOnce(Return(TRUE));
-    // no codec switch - just set new caps
-    EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&audioSrc), &configCaps));
-    // end of reattachSource: caps was updated to configCaps
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&configCaps));
-
-    std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
-        std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/aac", false);
-    EXPECT_TRUE(m_sut->reattachSource(source));
-    gst_object_unref(fakeSink);
-}
-
-TEST_F(GstGenericPlayerPrivateTest, shouldReattachAmlhalasinkAudioSourceWithFirstTimeCodecSwitch)
-{
-    GstAppSrc audioSrc{};
-    GstCaps newGstCaps{};
-    GstCaps oldGstCaps{};
-    GstCaps configCaps{};
-    GstEvent flushStartEvent{};
-    GstEvent flushStopEvent{};
-    GstPad typefindSrcPad{};
-    GstPad typefindSrcPeerPad{};
-    GstElement newAudioDecoder{};
-    GstElement newAudioParse{};
-    GstElement newQueue{};
-    GstPad newAudioDecoderSrcPad{};
-    GstElement typefind{};
-    GstElement decodeBin{};
-    GstElement playsinkBin{};
-    GstIterator typefindIt{};
-    gchar typefindName[]{"audiotypefind0"};
-    gchar capsStr[13]{"audio/x-eac3"}; // old caps was EAC3 (no "audio/mpeg" → audioAac=false)
-    gchar configCapsStr[] = "audio/mpeg, mpegversion=4, enable-svp=(string)true";
-    GstElement *fakeSink = gst_element_factory_make("fakesink", "amlhalasink1");
-    setPipelineState(GST_STATE_PAUSED);
-    modifyContext(
-        [&](GenericPlayerContext &context)
-        {
-            context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc);
-            context.playbackGroup.m_isAudioAAC = false;        // current codec is EAC3
-            context.playbackGroup.m_curAudioDecoder = nullptr; // first time switch: no existing decoder
-            context.playbackGroup.m_curAudioTypefind = &typefind;
-            context.playbackGroup.m_curAudioDecodeBin = &decodeBin;
-            context.playbackGroup.m_curAudioPlaysinkBin = &playsinkBin;
-        });
-
-    // reattachSource refreshes the playback group first: no audio decoder/parser are plugged (the
-    // switch creates them), and the live audio typefind is found in the audio decodebin.
-    EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline))).Times(2).WillRepeatedly(Return(&m_it));
-    EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).Times(2).WillRepeatedly(Return(GST_ITERATOR_DONE));
-    EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it)).Times(2);
-    EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&decodeBin))).WillOnce(Return(&typefindIt));
-    EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&typefindIt, _)).WillOnce(Return(GST_ITERATOR_OK));
-    EXPECT_CALL(*m_glibWrapperMock, gValueGetObject(_)).WillOnce(Return(&typefind));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetName(&typefind)).WillOnce(Return(typefindName));
-    EXPECT_CALL(*m_glibWrapperMock, gStrrstr(typefindName, StrEq("typefind"))).WillOnce(Return(typefindName));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(typefindName));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&typefind)).WillOnce(Return(&typefind));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&typefind));
-    EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_)).Times(4); // empty decoder + empty parser + typefind (OK + post-loop)
-    EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&typefindIt));
-
-    // createCapsFromMediaSource for audio/aac
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&newGstCaps));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsSetSimpleIntStub(&newGstCaps, StrEq("mpegversion"), G_TYPE_INT, 4));
-    EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsToString(&oldGstCaps)).WillOnce(Return(capsStr));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(capsStr));
+    EXPECT_CALL(*m_platformBackendMock,
+                switchAudioCodec(Field(&AudioCodecSwitchContext::audioPlaysinkBin, &playsinkBin)))
+        .WillOnce(Return(true));
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
-    // getPosition
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-    EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
-    EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
-    // getSink
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-        .WillOnce(Invoke([&](gpointer, const gchar *, void *element)
-                         { *reinterpret_cast<GstElement **>(element) = fakeSink; }));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(fakeSink));
-    // amlhalasink path
-    EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(StrEq("amlhalasink1"), StrEq("amlhalasink"))).WillOnce(Return(TRUE));
-    // performAudioTrackCodecChannelSwitch (EAC3->AAC, codec switch):
-    // configAudioCap unrefs original caps and creates new AAC caps
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
-    EXPECT_CALL(*m_glibWrapperMock, gStrdupPrintfStub(_)).WillOnce(Return(configCapsStr));
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsFromString(configCapsStr)).WillOnce(Return(&configCaps));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(configCapsStr));
-    // flush events
-    EXPECT_CALL(*m_gstWrapperMock, gstEventNewFlushStart()).WillOnce(Return(&flushStartEvent));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(GST_ELEMENT(&audioSrc), &flushStartEvent)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstEventNewFlushStop(kResetTime)).WillOnce(Return(&flushStopEvent));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(GST_ELEMENT(&audioSrc), &flushStopEvent)).WillOnce(Return(TRUE));
-    // haltAudioPlayback + resumeAudioPlayback: playsinkBin and decodeBin each called twice
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&playsinkBin, GST_STATE_READY))
-        .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(&playsinkBin, _, _, GST_CLOCK_TIME_NONE)).Times(2);
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&decodeBin, GST_STATE_PAUSED))
-        .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(&decodeBin, _, _, GST_CLOCK_TIME_NONE)).Times(2);
-    // switchAudioCodec -> firstTimeSwitchFromAC3toAAC
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStaticPad(&typefind, StrEq("src"))).WillOnce(Return(&typefindSrcPad));
-    EXPECT_CALL(*m_gstWrapperMock, gstPadGetPeer(&typefindSrcPad)).WillOnce(Return(&typefindSrcPeerPad));
-    EXPECT_CALL(*m_gstWrapperMock, gstPadUnlink(&typefindSrcPad, &typefindSrcPeerPad)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("aacparse"), StrEq("aacparse")))
-        .WillOnce(Return(&newAudioParse));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("avdec_aac"), StrEq("avdec_aac")))
-        .WillOnce(Return(&newAudioDecoder));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("queue"), StrEq("aqueue"))).WillOnce(Return(&newQueue));
-    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(_, &newAudioDecoder)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(_, &newAudioParse)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(_, &newQueue)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStaticPad(&newAudioDecoder, StrEq("src")))
-        .WillOnce(Return(&newAudioDecoderSrcPad));
-    EXPECT_CALL(*m_gstWrapperMock, gstPadLink(&newAudioDecoderSrcPad, &typefindSrcPeerPad)).WillOnce(Return(GST_PAD_LINK_OK));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&newAudioParse, &newQueue)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&newQueue, &newAudioDecoder)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&typefind, GST_STATE_READY)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&typefind, StrEq("force-caps")));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&typefind)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(&typefind, _, _, GST_CLOCK_TIME_NONE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&newAudioDecoder)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(&newAudioDecoder, _, _, GST_CLOCK_TIME_NONE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&newQueue)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(&newQueue, _, _, GST_CLOCK_TIME_NONE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&newAudioParse)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(&newAudioParse, _, _, GST_CLOCK_TIME_NONE));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&typefindSrcPad));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&typefindSrcPeerPad));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&newAudioDecoderSrcPad));
-    // gstAppSrcSetCaps after codec switch
-    EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&audioSrc), &configCaps));
-    // resumeAudioPlayback
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&playsinkBin)).WillOnce(Return(TRUE));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&decodeBin)).WillOnce(Return(TRUE));
-    // end of reattachSource: caps was updated to configCaps inside performAudioTrackCodecChannelSwitch
-    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&configCaps));
+    // termPipeline unrefs the stored playsink bin at teardown.
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&playsinkBin));
 
     std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
         std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/aac", false);
     EXPECT_TRUE(m_sut->reattachSource(source));
-    gst_object_unref(fakeSink);
+}
+
+TEST_F(GstGenericPlayerPrivateTest, shouldWarnWhenBackendCodecSwitchFails)
+{
+    GstAppSrc audioSrc{};
+    GstCaps newGstCaps{};
+    GstCaps oldGstCaps{};
+    setPipelineState(GST_STATE_PAUSED);
+    modifyContext([&](GenericPlayerContext &context)
+                  { context.streamInfo[firebolt::rialto::MediaSourceType::AUDIO].appSrc = GST_ELEMENT(&audioSrc); });
+    expectRefreshAudioPlaybackGroupHandlesEmpty();
+
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&newGstCaps));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsSetSimpleIntStub(&newGstCaps, StrEq("mpegversion"), G_TYPE_INT, 4));
+    EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(GST_APP_SRC(&audioSrc))).WillOnce(Return(&oldGstCaps));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&newGstCaps, &oldGstCaps)).WillOnce(Return(FALSE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetState(_)).WillOnce(Return(GST_STATE_PAUSED));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStateReturn(_)).WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
+    EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).WillOnce(Return());
+    EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(_, GST_FORMAT_TIME, _)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstStateUnlock(_)).WillOnce(Return());
+    // Backend reports failure: reattachSource logs a warning but still completes the caps lifecycle.
+    EXPECT_CALL(*m_platformBackendMock, switchAudioCodec(_)).WillOnce(Return(false));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&oldGstCaps));
+    EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&newGstCaps));
+
+    std::unique_ptr<firebolt::rialto::IMediaPipeline::MediaSource> source =
+        std::make_unique<firebolt::rialto::IMediaPipeline::MediaSourceAudio>("audio/aac", false);
+    EXPECT_TRUE(m_sut->reattachSource(source));
 }
 
 TEST_F(GstGenericPlayerPrivateTest, shouldSetSourceFlushed)

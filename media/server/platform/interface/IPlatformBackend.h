@@ -32,6 +32,7 @@ namespace firebolt::rialto::wrappers
 {
 class IGstWrapper;
 class IGlibWrapper;
+class IRdkGstreamerUtilsWrapper;
 } // namespace firebolt::rialto::wrappers
 
 namespace firebolt::rialto::server
@@ -49,8 +50,10 @@ namespace firebolt::rialto::server
  * Versioning is additive: v3 grows the seam with capability flags (isVideoMaster)
  * on top of v2's sink creation; v4 grows it further with the live-graph audio ops
  * (isAudioFadeSupported / audioFade / processAudioGap), moving the last SoC audio
- * knowledge out of the engine core. New methods are appended; existing ones are
- * frozen, so a v2 backend stays valid against v2 cases.
+ * knowledge out of the engine core; v5 folds the mid-stream audio codec switch
+ * (switchAudioCodec) behind the seam, removing the last SoC name from the engine
+ * core. New methods are appended; existing ones are frozen, so a v2 backend stays
+ * valid against v2 cases.
  *
  * The backend is loaded as a separate `.so` via the extern "C" entrypoints below
  * and version-checked, so a vendor layer can be upgraded without rebuilding or
@@ -62,7 +65,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 4;
+constexpr uint32_t kPlatformBackendAbiVersion = 5;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -73,6 +76,34 @@ struct PlatformHostContext
 {
     std::shared_ptr<firebolt::rialto::wrappers::IGstWrapper> gstWrapper;
     std::shared_ptr<firebolt::rialto::wrappers::IGlibWrapper> glibWrapper;
+    std::shared_ptr<firebolt::rialto::wrappers::IRdkGstreamerUtilsWrapper> rdkGstreamerUtilsWrapper{};
+};
+
+/**
+ * @brief Neutral, engine-owned description of a mid-stream audio codec switch (ABI v5).
+ *
+ * Carries only GStreamer element handles and primitive audio attributes so no
+ * SoC / rdk-gstreamer-utils type crosses the seam. The backend builds whatever
+ * platform-private structures it needs from these fields.
+ */
+struct AudioCodecSwitchContext
+{
+    GstElement *pipeline{nullptr};
+    GstElement *audioAppSrc{nullptr};
+    GstElement *audioDecodeBin{nullptr};
+    GstElement *audioPlaysinkBin{nullptr};
+    GstElement *audioDecoder{nullptr};
+    GstElement *audioParse{nullptr};
+    GstElement *audioTypefind{nullptr};
+    bool *isAudioAacState{nullptr};   // in/out: persistent "current codec is AAC" bit, owned by the engine's playback group
+    bool svpEnabled{true};
+    const char *codecParam{nullptr};  // audio attributes (neutral)
+    uint32_t numberOfChannels{0};
+    uint32_t samplesPerSecond{0};
+    uint32_t bitrate{0};
+    uint32_t blockAlignment{0};
+    const uint8_t *codecSpecificData{nullptr};
+    uint32_t codecSpecificDataLen{0};
 };
 
 class IPlatformBackend
@@ -184,6 +215,20 @@ public:
      */
     virtual bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration,
                                  int64_t discontinuityGap, bool audioAac) = 0;
+
+    /**
+     * @brief Applies a mid-stream audio codec switch the platform's way (ABI v5).
+     *
+     * The engine hands the backend a neutral AudioCodecSwitchContext (element handles + audio
+     * attributes) and names no SoC. The reference backend carries the transitional amlhalasink
+     * fork (configAudioCap / haltAudioPlayback / applyAudioCodecSwitch / resumeAudioPlayback) plus
+     * the generic rdk-gstreamer-utils path until a per-SoC .so is authored; the backend uses the
+     * host GStreamer/rdk-gstreamer-utils wrappers it was given.
+     *
+     * @param[in] ctx : The neutral codec-switch description.
+     * @retval true if the switch succeeded, false otherwise.
+     */
+    virtual bool switchAudioCodec(const AudioCodecSwitchContext &ctx) = 0;
 
 protected:
     IPlatformBackend() = default;
