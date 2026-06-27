@@ -5,10 +5,46 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-26 (#6 dlopen-loader **merged to master `637a11de`, PUSHED to origin/Ulrond, issue #6 CLOSED**;
-**SoC isolation concerns #1 (video-master) + #2 (playback-rate) DONE + merged to local master `4fe13bb3`** —
-`IPlatformBackend` v3, engine grep-clean bar the codec-switch (task 4); **push held** for explicit go;
-architecture diagrams added; SoC migration scoped + classified)_
+_Last updated: 2026-06-27 (**SoC isolation #1+#2 merged to local master `60a26699`, push held**; pivoted to the
+**data-path / memory-copy** work — server-side Stage A (zero-copy wrap) scoped; **rdk-gstreamer-utils decision
+revised** — fold behind `IPlatformBackend`, not a separate surface. Prior: #6 merged+pushed+closed)_
+
+---
+
+## Session update — 2026-06-27
+
+**SoC isolation engine-side DONE + merged (local master `60a26699`, ahead of origin by 8, PUSH HELD).**
+Branch `feature/1-soc-platform-isolation` (off master, under Milestone #1), merged `--no-ff` (`4fe13bb3`).
+Commits: docs `059ae98c`; **#1 video-master `7bb20bb8`**; **#2 playback-rate `577088ef`**; relabels `1bdea813`.
+`IPlatformBackend` grown to **ABI v3** (`isVideoMaster()`, `applyPlaybackRate(pipeline,rate)`); `GstCapabilities`
++ `SetPlaybackRate` delegate to the backend; engine **grep-clean of SoC names** except the live-graph codec
+switch (`GstGenericPlayer.cpp:1918`, the rdk-utils boundary). servergstplayer 613/613, servermain 471/471.
+
+**DECISION — `RdkGstreamerUtilsWrapper` is NOT needed as a separate plug-point (revises OpenSpec task 4).**
+Its 4 methods are all *live-graph runtime SoC-audio* ops with a generic fallback already present:
+`performAudioTrackCodecChannelSwitch` (`GstGenericPlayer.cpp:1928`), `processAudioGap` (`ProcessAudioGap.cpp:50`),
+`doAudioEasingonSoc`/`isSocAudioFadeSupported` (`SetVolume.cpp:108`, `GstCapabilities.cpp:305`). Same
+"ask-SoC-else-generic" shape as #1/#2 → **fold behind `IPlatformBackend`** (additive v-next: `switchAudioCodec`/
+`processAudioGap`/`audioFade`+`isAudioFadeSupported`), reference=generic/no-op, per-SoC `.so` carries vendor
+logic. The per-SoC `.so` MAY still call the rdk-gstreamer-utils *library* internally for the codec switch (the
+"not viable to reimplement" bit) — that becomes an `.so` impl detail, **not a core dependency**. Collapses the
+two internal plug-points to one seam (the transformation's own goal); AIDL HAL subsumes even that later.
+
+**MEMORY-COPY / DATA-PATH — fixing it; starting server-side Stage A (user-directed 2026-06-27).** Goal: the
+4-CPU-copy encrypted path (see `external/rialto-data-path-direction.md`). **Server-side copy 3** = SHM→GstBuffer
+at `GstGenericPlayer::createBuffer` (`GstGenericPlayer.cpp:1513-1514`, `gstBufferNewAllocate`+`gstBufferFill`).
+Fix = **wrap** the SHM region as a `GstBuffer` (`gstBufferNewWrapped`, already used here for codecData/subsamples)
+instead of copy. **The real work is the SHM slot lifetime, not the wrap:** today the SHM-read task copies the
+whole batch then `notifyNeedMediaData` → `m_shmBuffer->clearData()` (`MediaPipelineServerInternal.cpp:1435`)
+frees the WHOLE SHM region for client reuse. Zero-copy COUPLES slot lifetime to decoder release — so `clearData`
+must become **per-slot, released by a `GDestroyNotify` on the wrapping `GstBuffer`**, and SHM must be
+slot/ring-structured + sized so the client doesn't stall/overwrite an in-flight slot. So it is **not a pure
+server-internal change** — it touches the client↔server need-data / shm-availability protocol. Data flow:
+`DataReaderV2::readData()` (`DataReaderV2.cpp:213`, `setData` points segments INTO SHM) → `ReadShmDataAndAttachSamples`
+→ `createBuffer` (copy) → appsrc; separate `ActiveRequests::addSegment` copy (`ActiveRequests.cpp:38`) is the
+non-SHM attach path. **NEXT:** design the SHM slot/ring lifetime (the gating risk), then implement the
+`createBuffer` wrap test-first; new issue + branch off master (data-path zero-copy, NOT under #1). Stage B
+(fused secure decode via HAL decoder on the backend ABI) composes on top later.
 
 ---
 
