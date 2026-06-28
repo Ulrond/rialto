@@ -31,7 +31,6 @@ using testing::StrEq;
 
 namespace
 {
-const std::string kElementTypeName{"GenericSink"};
 constexpr bool kImmediateOutput{true};
 constexpr bool kLowLatency{true};
 constexpr bool kSync{true};
@@ -57,45 +56,34 @@ public:
     ~PipelinePropertyTest() override { gst_object_unref(m_element); }
 
     template <typename T>
-    void willSetSinkProperty(const std::string &sinkName, const std::string &propertyName, const T &value)
+    void willSetSinkProperty(GstElement *sink, const std::string &propertyName, const T &value)
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, StrEq(sinkName.c_str()), _))
-            .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_element;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_element))).WillOnce(Return(kElementTypeName.c_str()));
+        // getSink returns the backend-stored sink (the base m_audioSink/m_videoSink) directly; the
+        // sink ref/unref are covered by the harness AnyNumber expectations. The property is set on
+        // that sink after gObjectClassFindProperty confirms it exists.
         EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq(propertyName.c_str()))).WillOnce(Return(&m_prop));
 
         if constexpr (std::is_same_v<T, bool>)
         {
-            EXPECT_CALL(*m_glibWrapperMock, gObjectSetBoolStub(_, StrEq(propertyName.c_str()), value)).Times(1);
+            EXPECT_CALL(*m_glibWrapperMock, gObjectSetBoolStub(sink, StrEq(propertyName.c_str()), value)).Times(1);
         }
         else
         {
-            EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(_, StrEq(propertyName.c_str()))).Times(1);
+            EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(sink, StrEq(propertyName.c_str()))).Times(1);
         }
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(sink))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     template <typename T>
-    void willGetSinkProperty(const std::string &sinkName, const std::string &propertyName, const T &value)
+    void willGetSinkProperty(GstElement *sink, const std::string &propertyName, const T &value)
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, StrEq(sinkName.c_str()), _))
-            .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_element;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_element))).WillOnce(Return(kElementTypeName.c_str()));
         EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq(propertyName.c_str()))).WillOnce(Return(&m_prop));
 
         if constexpr (std::is_same_v<T, bool>)
         {
-            EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(propertyName.c_str()), _))
+            EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(sink, StrEq(propertyName.c_str()), _))
                 .WillOnce(Invoke(
                     [&](gpointer object, const gchar *first_property_name, void *val)
                     {
@@ -103,7 +91,9 @@ public:
                         *returnVal = value ? TRUE : FALSE;
                     }));
         }
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(sink))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     template <typename T>
@@ -132,7 +122,9 @@ public:
         {
             EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(_, StrEq(propertyName.c_str()))).Times(1);
         }
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     template <typename T>
@@ -170,21 +162,39 @@ public:
                         *returnVal = value;
                     }));
         }
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
-    void willFailToSetSinkProperty()
+    void willSetUseBuffering()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, _, _))
+        // use-buffering is set on the audio decodebin (playbackGroup.m_curAudioDecodeBin = the harness
+        // m_audioDecodebin), not on a sink or the autoplugged decoder.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectSetBoolStub(&m_audioDecodebin, StrEq("use-buffering"), kUseBuffering))
+            .WillOnce(Invoke([this](gpointer, const gchar *, gboolean) { workerFinished(); }));
+    }
+
+    void willGetUseBuffering()
+    {
+        // use-buffering is read back from the audio decodebin.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_audioDecodebin, StrEq("use-buffering"), _))
             .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
+                [](gpointer, const gchar *, void *val)
                 {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_element;
+                    gboolean *returnVal = reinterpret_cast<gboolean *>(val);
+                    *returnVal = kUseBuffering ? TRUE : FALSE;
                 }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_element))).WillOnce(Return(kElementTypeName.c_str()));
+    }
+
+    void willFailToSetSinkProperty(GstElement *sink)
+    {
+        // getSink returns the backend-stored sink (base m_audioSink/m_videoSink); the property lookup
+        // fails (gObjectClassFindProperty returns null) so the set is skipped and the sink is unref'd.
         EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, _)).WillOnce(Return(nullptr));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(sink))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     void willFailToSetDecoderProperty()
@@ -199,13 +209,19 @@ public:
         EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it));
 
         EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, _)).WillOnce(Return(nullptr));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_element))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
-    void willFailToGetSink()
+    void willFailToGetSink(GstElement *sink)
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, _, _))
-            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+        // getSink returns the backend-stored sink (base m_audioSink/m_videoSink); the property lookup
+        // fails (gObjectClassFindProperty returns null) so the getter returns false and the sink is unref'd.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, _)).WillOnce(Return(nullptr));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(sink))
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     void willFailToGetDecoder()
@@ -320,6 +336,7 @@ public:
     {
         auto req{createSetUseBufferingRequest(m_sessionId, kUseBuffering)};
         ConfigureAction<SetUseBuffering>(m_clientStub).send(req).expectSuccess().matchResponse([&](const auto &resp) {});
+        waitWorker();
     }
 
     void getUseBuffering()
@@ -406,12 +423,6 @@ public:
     {
         auto req{createSetUseBufferingRequest(m_sessionId + 1, kUseBuffering)};
         ConfigureAction<SetUseBuffering>(m_clientStub).send(req).expectFailure();
-    }
-
-    void getUseBufferingFailure()
-    {
-        auto req{createGetUseBufferingRequest(m_sessionId)};
-        ConfigureAction<GetUseBuffering>(m_clientStub).send(req).expectFailure();
     }
 
     void getDurationSuccess()
@@ -573,23 +584,23 @@ TEST_F(PipelinePropertyTest, pipelinePropertyGetAndSetSuccess)
     indicateAllSourcesAttached({&m_audioAppSrc, &m_videoAppSrc});
 
     // Step 4: Set Immediate Output
-    willSetSinkProperty("video-sink", "immediate-output", kImmediateOutput);
+    willSetSinkProperty(m_videoSink, "immediate-output", kImmediateOutput);
     setImmediateOutput();
 
     // Step 5: Get Immediate output
-    willGetSinkProperty("video-sink", "immediate-output", kImmediateOutput);
+    willGetSinkProperty(m_videoSink, "immediate-output", kImmediateOutput);
     getImmediateOutput();
 
     // Step 6: Set Low Latency
-    willSetSinkProperty("audio-sink", "low-latency", kLowLatency);
+    willSetSinkProperty(m_audioSink, "low-latency", kLowLatency);
     setLowLatency();
 
     // Step 7: Set Sync
-    willSetSinkProperty("audio-sink", "sync", kSync);
+    willSetSinkProperty(m_audioSink, "sync", kSync);
     setSync();
 
     // Step 8: Get Sync
-    willGetSinkProperty("audio-sink", "sync", kSync);
+    willGetSinkProperty(m_audioSink, "sync", kSync);
     getSync();
 
     // Step 9: Set Sync Off
@@ -613,9 +624,11 @@ TEST_F(PipelinePropertyTest, pipelinePropertyGetAndSetSuccess)
     getBufferingLimit();
 
     // Step 14: Set Use Buffering
+    willSetUseBuffering();
     setUseBuffering();
 
     // Step 15: Get Use Buffering
+    willGetUseBuffering();
     getUseBuffering();
 
     // Step 16: Get Duration
@@ -786,23 +799,23 @@ TEST_F(PipelinePropertyTest, pipelinePropertyGetAndSetFailures)
     indicateAllSourcesAttached({&m_audioAppSrc, &m_videoAppSrc});
 
     // Step 4: Fail to set Immediate Output
-    willFailToSetSinkProperty();
+    willFailToSetSinkProperty(m_videoSink);
     setImmediateOutputFailure();
 
     // Step 5: Fail to get Immediate Output
-    willFailToGetSink();
+    willFailToGetSink(m_videoSink);
     getImmediateOutputFailure();
 
     // Step 6: Fail to set Low Latency
-    willFailToSetSinkProperty();
+    willFailToSetSinkProperty(m_audioSink);
     setLowLatencyFailure();
 
     // Step 7: Fail to set Sync
-    willFailToSetSinkProperty();
+    willFailToSetSinkProperty(m_audioSink);
     setSyncFailure();
 
     // Step 8: Fail to get Sync
-    willFailToGetSink();
+    willFailToGetSink(m_audioSink);
     getSyncFailure();
 
     // Step 9: Fail to set Sync Off
@@ -825,8 +838,9 @@ TEST_F(PipelinePropertyTest, pipelinePropertyGetAndSetFailures)
     willFailToGetDecoder();
     getBufferingLimitFailure();
 
-    // Step 14: Fail to Get Use Buffering
-    getUseBufferingFailure();
+    // Step 14: Get Use Buffering (always succeeds on the explicit path; the audio decodebin is present)
+    willGetUseBuffering();
+    getUseBuffering();
 
     // Step 15: Fail to Set Use Buffering
     setUseBufferingFailure();

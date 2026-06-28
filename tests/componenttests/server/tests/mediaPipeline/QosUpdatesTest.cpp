@@ -37,7 +37,6 @@ namespace
 constexpr unsigned kFramesToPush{1};
 const std::string kAudioSourceName{"Audio"};
 const std::string kVideoSourceName{"Video"};
-const std::string kElementTypeName{"GenericSink"};
 } // namespace
 
 namespace firebolt::rialto::server::ct
@@ -45,14 +44,8 @@ namespace firebolt::rialto::server::ct
 class QosUpdatesTest : public MediaPipelineTest
 {
 public:
-    QosUpdatesTest()
-    {
-        GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
-        m_videoSink = gst_element_factory_create(elementFactory, nullptr);
-        gst_object_unref(elementFactory);
-    }
-
-    ~QosUpdatesTest() override { gst_object_unref(m_videoSink); }
+    QosUpdatesTest() = default;
+    ~QosUpdatesTest() override = default;
 
     void willQos(const std::string &sourceName)
     {
@@ -79,16 +72,10 @@ public:
 
     void willGetStats()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, StrEq("video-sink"), _))
-            .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_videoSink;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_videoSink))).WillOnce(Return(kElementTypeName.c_str()));
-
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("stats"), _))
+        // getStats() obtains the sink via getSink(VIDEO), which returns the backend-stored video sink
+        // (the base m_videoSink), then reads its "stats" structure. The sink ref/unref are covered by the
+        // harness AnyNumber expectations set in videoSourceWillBeAttached().
+        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(m_videoSink, StrEq("stats"), _))
             .WillOnce(Invoke(
                 [&](gpointer object, const gchar *first_property_name, void *element)
                 {
@@ -100,7 +87,6 @@ public:
             .WillOnce(DoAll(SetArgumentPointee<2>(kRenderedFrames), Return(true)));
         EXPECT_CALL(*m_gstWrapperMock, gstStructureGetUint64(&m_testStructure, StrEq("dropped"), _))
             .WillOnce(DoAll(SetArgumentPointee<2>(kDroppedFrames), Return(true)));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_videoSink)).Times(1);
         EXPECT_CALL(*m_gstWrapperMock, gstStructureFree(&m_testStructure)).Times(1);
     }
 
@@ -120,16 +106,8 @@ public:
 
     void willFailToGetStats()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, StrEq("video-sink"), _))
-            .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_videoSink;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_videoSink))).WillOnce(Return(kElementTypeName.c_str()));
-
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("stats"), _))
+        // As willGetStats, but the stats structure is missing the "rendered" frame count so getStats fails.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(m_videoSink, StrEq("stats"), _))
             .WillOnce(Invoke(
                 [&](gpointer object, const gchar *first_property_name, void *element)
                 {
@@ -140,7 +118,6 @@ public:
         // Emulate a situation that the stats structure doesn't contain the number
         // of rendered frames...
         EXPECT_CALL(*m_gstWrapperMock, gstStructureGetUint64(&m_testStructure, StrEq("rendered"), _)).WillOnce(Return(false));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_videoSink)).Times(1);
         EXPECT_CALL(*m_gstWrapperMock, gstStructureFree(&m_testStructure)).Times(1);
     }
 
@@ -151,7 +128,6 @@ public:
     }
 
 private:
-    GstElement *m_videoSink{nullptr};
     GstElement m_src{};
     GstStructure m_testStructure;
 };

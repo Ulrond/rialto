@@ -24,42 +24,22 @@
 #include "MessageBuilders.h"
 
 using testing::_;
-using testing::Invoke;
 using testing::Return;
 using testing::StrEq;
-
-namespace
-{
-const std::string kVideoSinkTypeName{"VideoSink"};
-} // namespace
 
 namespace firebolt::rialto::server::ct
 {
 class SetVideoWindowTest : public MediaPipelineTest
 {
 public:
-    SetVideoWindowTest()
-    {
-        GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
-        m_videoSink = gst_element_factory_create(elementFactory, nullptr);
-        gst_object_unref(elementFactory);
-    }
+    SetVideoWindowTest() = default;
 
-    ~SetVideoWindowTest() override { gst_object_unref(m_videoSink); }
+    ~SetVideoWindowTest() override = default;
 
     void willSetVideoWindow()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("video-sink"), _))
-            .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_videoSink;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_videoSink))).WillOnce(Return(kVideoSinkTypeName.c_str()));
         EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("rectangle"))).WillOnce(Return(&m_paramSpec));
         EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(m_videoSink, StrEq("rectangle")));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_videoSink));
     }
 
     void setVideoWindow()
@@ -68,7 +48,6 @@ public:
     }
 
 private:
-    GstElement *m_videoSink{nullptr};
     GParamSpec m_paramSpec{};
 };
 

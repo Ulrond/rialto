@@ -71,7 +71,8 @@ public:
 
         EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
             .WillRepeatedly(DoAll(SetArgPointee<1>(kNumPropertiesOnSink), Return(m_dummyParamsPtr)));
-        EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock, isSocAudioFadeSupported()).WillOnce(Return(true));
+        // audio-fade is asked of the platform backend; the reference LinuxPlatformBackend reports it
+        // unsupported, so the engine makes no rdkGstreamerUtils SoC probe and audio-fade is not returned.
         EXPECT_CALL(*m_glibWrapperMock, gFree(m_dummyParamsPtr)).Times(1);
         EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(m_listOfFactories)).Times(1);
     }
@@ -84,17 +85,13 @@ public:
             {
                 std::vector<std::string> supportedProperties{resp.supported_properties().begin(),
                                                              resp.supported_properties().end()};
-                EXPECT_EQ(supportedProperties, m_kParamNames);
+                // The reference backend reports audio-fade unsupported, so only the three sink
+                // properties come back (audio-fade is dropped).
+                EXPECT_EQ(supportedProperties, m_kExpectedFoundProperties);
             });
 
         gst_plugin_feature_list_free(m_listOfFactories);
         m_listOfFactories = nullptr;
-    }
-
-    void willCheckIfVideoIsMaster()
-    {
-        EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_registry));
-        EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_registry, StrEq("amlhalasink"))).WillOnce(Return(nullptr));
     }
 
 private:
@@ -102,9 +99,11 @@ private:
     GParamSpec m_dummyParams[kNumPropertiesOnSink];
     GParamSpec *m_dummyParamsPtr[kNumPropertiesOnSink];
     std::vector<std::string> m_kParamNames{kPropertyName1, kPropertyName3, kPropertyName2, kAudioFade};
+    // The reference backend reports audio-fade unsupported, so the response contains only the three
+    // properties found on the sink (audio-fade is omitted).
+    std::vector<std::string> m_kExpectedFoundProperties{kPropertyName1, kPropertyName3, kPropertyName2};
     GstElement m_object;
     GstElementFactory *m_elementFactory;
-    GstRegistry m_registry{};
 };
 
 /*
@@ -413,8 +412,8 @@ TEST_F(MediaPipelineCapabilitiesTest, checkGetSupportedProperties)
  */
 TEST_F(MediaPipelineCapabilitiesTest, checkIsVideoMaster)
 {
-    // Step 1: Check is video master
-    willCheckIfVideoIsMaster();
+    // Step 1: Check is video master. isVideoMaster now delegates to the platform backend; the reference
+    // LinuxPlatformBackend returns true with no gstRegistry/amlhalasink probe, so no gst calls are expected.
     ConfigureAction<IsVideoMaster>{m_clientStub}
         .send(createIsVideoMasterRequest())
         .expectSuccess()

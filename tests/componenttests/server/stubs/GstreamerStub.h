@@ -44,6 +44,14 @@ public:
     void setupRialtoSource();
     void setupAppSrcCallbacks(GstAppSrc *appSrc);
     void setupElement(GstElement *element);
+
+    // Capture the pad-added GCallback connected on the explicit audio/video decodebin (the production
+    // code wires the autoplugged decoder/parser off this signal). The trigger methods invoke the
+    // captured callback so the test can drive the autoplug as if decodebin emitted pad-added.
+    void captureAudioDecodebinPadAdded(GstElement *decodebin);
+    void captureVideoDecodebinPadAdded(GstElement *decodebin);
+    void triggerAudioPadAdded(GstPad *pad);
+    void triggerVideoPadAdded(GstPad *pad);
     void sendStateChanged(GstState oldState, GstState newState, GstState pendingState, bool handleParseCall = false);
     void sendEos();
     void sendQos(GstElement *src);
@@ -69,6 +77,12 @@ private:
     gulong m_deepElementAddedSignalId{2};
     std::map<GstAppSrc *, GstAppSrcCallbacks> m_appSrcCallbacks;
     std::map<GstAppSrc *, gpointer> m_appSrcCallbacksUserDatas;
+    GstElement *m_audioDecodebin{nullptr};
+    GCallback m_audioPadAddedFunc{};
+    gpointer m_audioPadAddedUserData{nullptr};
+    GstElement *m_videoDecodebin{nullptr};
+    GCallback m_videoPadAddedFunc{};
+    gpointer m_videoPadAddedUserData{nullptr};
 };
 } // namespace firebolt::rialto::server::ct
 

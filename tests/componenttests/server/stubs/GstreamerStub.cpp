@@ -46,32 +46,9 @@ GstreamerStub::GstreamerStub(const std::shared_ptr<testing::StrictMock<wrappers:
 
 void GstreamerStub::setupPipeline()
 {
-    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_pipeline, StrEq("source-setup"), NotNullMatcher(), NotNullMatcher()))
-        .WillOnce(Invoke(
-            [this](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
-            {
-                m_setupSourceFunc = c_handler;
-                m_setupSourceUserData = data;
-                return m_setupSourceSignalId;
-            }));
-    EXPECT_CALL(*m_glibWrapperMock,
-                gSignalConnect(m_pipeline, StrEq("element-setup"), NotNullMatcher(), NotNullMatcher()))
-        .WillOnce(Invoke(
-            [this](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
-            {
-                m_setupElementFunc = c_handler;
-                m_setupElementUserData = data;
-                return m_setupElementSignalId;
-            }));
-    EXPECT_CALL(*m_glibWrapperMock,
-                gSignalConnect(m_pipeline, StrEq("deep-element-added"), NotNullMatcher(), NotNullMatcher()))
-        .WillOnce(Invoke(
-            [this](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
-            {
-                m_deepElementAddedFunc = c_handler;
-                m_deepElementAddedUserData = data;
-                return m_deepElementAddedSignalId;
-            }));
+    // Explicit construction: the plain GstPipeline has none of playbin's source-setup / element-setup /
+    // deep-element-added signals (they were removed with playbin). Only the dispatcher's bus polling
+    // remains.
     setupMessages(false);
 }
 
@@ -131,6 +108,34 @@ void GstreamerStub::setupElement(GstElement *element)
     ASSERT_TRUE(m_setupElementFunc);
     reinterpret_cast<void (*)(GstElement *, GstElement *, gpointer)>(m_setupElementFunc)(m_pipeline, element,
                                                                                          m_setupElementUserData);
+}
+
+void GstreamerStub::captureAudioDecodebinPadAdded(GstElement *decodebin)
+{
+    m_audioDecodebin = decodebin;
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(decodebin, StrEq("pad-added"), _, _))
+        .WillOnce(DoAll(SaveArg<2>(&m_audioPadAddedFunc), SaveArg<3>(&m_audioPadAddedUserData), Return(1)));
+}
+
+void GstreamerStub::captureVideoDecodebinPadAdded(GstElement *decodebin)
+{
+    m_videoDecodebin = decodebin;
+    EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(decodebin, StrEq("pad-added"), _, _))
+        .WillOnce(DoAll(SaveArg<2>(&m_videoPadAddedFunc), SaveArg<3>(&m_videoPadAddedUserData), Return(1)));
+}
+
+void GstreamerStub::triggerAudioPadAdded(GstPad *pad)
+{
+    ASSERT_TRUE(m_audioPadAddedFunc);
+    reinterpret_cast<void (*)(GstElement *, GstPad *, gpointer)>(m_audioPadAddedFunc)(m_audioDecodebin, pad,
+                                                                                      m_audioPadAddedUserData);
+}
+
+void GstreamerStub::triggerVideoPadAdded(GstPad *pad)
+{
+    ASSERT_TRUE(m_videoPadAddedFunc);
+    reinterpret_cast<void (*)(GstElement *, GstPad *, gpointer)>(m_videoPadAddedFunc)(m_videoDecodebin, pad,
+                                                                                      m_videoPadAddedUserData);
 }
 
 void GstreamerStub::sendStateChanged(GstState oldState, GstState newState, GstState pendingState, bool handleParseCall)

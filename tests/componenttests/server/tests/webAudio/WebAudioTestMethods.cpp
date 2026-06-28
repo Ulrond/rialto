@@ -178,16 +178,11 @@ void WebAudioTestMethods::willCreateWebAudioPlayer()
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetMaxBytes(&m_appSrc, 10 * 1024));
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(G_OBJECT(&m_appSrc), StrEq("format")));
 
-    // EXPECTS coming from...
-    //   GstWebAudioPlayerTestCommon::expectMakeAmlhalaSink()
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryGet()).WillOnce(Return(&m_reg));
-    EXPECT_CALL(*m_gstWrapperMock, gstRegistryLookupFeature(&m_reg, StrEq("amlhalasink")))
-        .WillOnce(Return(GST_PLUGIN_FEATURE(&m_feature)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("amlhalasink"), StrEq("webaudiosink")))
+    // The web-audio sink now comes from the platform backend (M1). The reference LinuxPlatformBackend
+    // names no SoC and returns a generic autoaudiosink, so there is no amlhalasink registry-lookup
+    // ladder and no "direct-mode" property: createAudioSink() is just one gstElementFactoryMake.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autoaudiosink"), StrEq("webaudiosink")))
         .WillOnce(Return(&m_sink));
-
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(_, StrEq("direct-mode")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_PLUGIN_FEATURE(&m_feature)));
 
     // EXPECTS coming from...
     //   GstWebAudioPlayerTestCommon::expectInitAppSrc()

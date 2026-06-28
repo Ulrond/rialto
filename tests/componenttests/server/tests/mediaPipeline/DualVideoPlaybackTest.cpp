@@ -36,7 +36,6 @@ namespace
 {
 constexpr unsigned kFramesToPush{1};
 constexpr int kFrameCountInPlayingState{24};
-constexpr GType kSecondaryGstPlayFlagsType{static_cast<GType>(234)};
 const std::string kDummyStateName{"dummy"};
 } // namespace
 
@@ -59,6 +58,23 @@ public:
     DualVideoPlaybackTest() = default;
     ~DualVideoPlaybackTest() override = default;
 
+    // Scan the secondary backend sink for underflow / first-video-frame signals; the reference
+    // autovideosink exposes neither, so nothing connects (video: two scans — underflow + first-frame).
+    void expectSecondarySinkSignalScan(GstElement *sink)
+    {
+        constexpr int kScans{2};
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(sink)).Times(kScans).WillRepeatedly(Return(G_TYPE_PARAM));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+            .Times(kScans)
+            .WillRepeatedly(Invoke(
+                [&](GType, guint *nIds)
+                {
+                    *nIds = 0;
+                    return &m_secondarySignalIds;
+                }));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(&m_secondarySignalIds)).Times(kScans);
+    }
+
     void secondaryGstPlayerWillBeCreated()
     {
         m_secondaryGstreamerStub.setupPipeline();
@@ -66,40 +82,17 @@ public:
             .WillOnce(Return(nullptr))
             .RetiresOnSaturation();
         EXPECT_CALL(*m_gstWrapperMock, gstElementRegister(0, StrEq("rialtosrc"), _, _)).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("playbin"), _))
+        // Explicit construction: a plain GstPipeline container. No playbin, play-flags, playsink, uri or
+        // brcmaudiosink; the per-stream chain (appsrc -> decodebin -> autovideosink) is built on AttachSource.
+        EXPECT_CALL(*m_gstWrapperMock, gstPipelineNew(StrEq("media_pipeline")))
             .WillOnce(Return(&m_secondaryPipeline))
             .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gTypeFromName(StrEq("GstPlayFlags")))
-            .Times(4)
-            .WillRepeatedly(Return(kSecondaryGstPlayFlagsType))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gTypeClassRef(kSecondaryGstPlayFlagsType))
-            .Times(4)
-            .WillRepeatedly(Return(&m_flagsClass));
-        EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("audio")))
-            .WillOnce(Return(&m_audioFlag))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("video")))
-            .WillOnce(Return(&m_videoFlag))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("native-video")))
-            .WillOnce(Return(&m_nativeVideoFlag))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("text")))
-            .WillOnce(Return(&m_subtitleFlag))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryFind(StrEq("brcmaudiosink")))
-            .WillOnce(Return(nullptr))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryPipeline, StrEq("flags")));
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryPipeline, StrEq("uri")));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinGetByName(GST_BIN(&m_secondaryPipeline), StrEq("playsink")))
-            .WillOnce(Return(&m_secondaryPlaysink));
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryPlaysink, StrEq("send-event-mode")));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_secondaryPlaysink));
         EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&m_secondaryPipeline, GST_STATE_READY))
             .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_secondaryPipeline)).Times(AtMost(1));
+        // The GstProfiler holds a ref on the pipeline while enabled.
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_secondaryPipeline))
+            .Times(AtMost(1))
+            .WillRepeatedly(Return(&m_secondaryPipeline));
 
         // In case of longer testruns, GstPlayer may request to query position
         EXPECT_CALL(*m_gstWrapperMock, gstElementQueryPosition(&m_secondaryPipeline, GST_FORMAT_TIME, _))
@@ -109,25 +102,11 @@ public:
 
     void secondaryGstPlayerWithNoResUsageWillBeCreated()
     {
+        // The limited-resource secondary session has a small VideoRequirements -> m_context.videoId = 1.
+        // With explicit construction the reference platform backend's createVideoSink ignores the id and
+        // still returns a plane-agnostic autovideosink, so there is no westerossink / res-usage / erm-context
+        // ladder: create is identical to the full-resource case.
         secondaryGstPlayerWillBeCreated();
-
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryFind(StrEq("westerossink")))
-            .WillOnce(Return(reinterpret_cast<GstElementFactory *>(&m_westerosFactory)));
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryCreate(reinterpret_cast<GstElementFactory *>(&m_westerosFactory), _))
-            .WillOnce(Return(&m_westerosSink));
-        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("res-usage"))).WillOnce(Return(&m_rectangleSpec));
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(_, StrEq("res-usage")));
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(_, StrEq("video-sink")));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(reinterpret_cast<GstElementFactory *>(&m_westerosFactory)));
-        EXPECT_CALL(*m_gstWrapperMock, gstContextNew(StrEq("erm"), false))
-            .WillOnce(Return(reinterpret_cast<GstContext *>(&m_dummyContext)));
-        EXPECT_CALL(*m_gstWrapperMock, gstContextWritableStructure(reinterpret_cast<GstContext *>(&m_dummyContext)))
-            .WillOnce(Return(&m_contextStructure));
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstStructureSetUintStub(&m_contextStructure, StrEq("res-usage"), G_TYPE_UINT, 0x0u));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementSetContext(_, reinterpret_cast<GstContext *>(&m_dummyContext)));
-        EXPECT_CALL(*m_gstWrapperMock, gstContextUnref(reinterpret_cast<GstContext *>(&m_dummyContext)));
     }
 
     void secondaryVideoSourceWillBeAttached()
@@ -150,58 +129,61 @@ public:
         EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("appsrc"), StrEq("vidsrc")))
             .WillOnce(Return(GST_ELEMENT(&m_secondaryVideoAppSrc)));
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(&m_secondaryVideoAppSrc, &m_videoCaps));
+
+        // buildVideoChain: appsrc -> decodebin -> autovideosink (from the reference backend, keyed by the
+        // secondary video id; the reference sink is plane-agnostic). The decoder is autoplugged later via
+        // decodebin's pad-added, which the mocked decodebin never emits, so only the synchronous part runs.
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+            .WillOnce(Return(&m_secondaryVideoDecodebin));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autovideosink"), StrEq("videosink")))
+            .WillOnce(Return(&m_secondaryVideoSink));
+        EXPECT_CALL(*m_gstWrapperMock,
+                    gstBinAdd(GST_BIN(&m_secondaryPipeline), GST_ELEMENT(&m_secondaryVideoAppSrc)))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_secondaryPipeline), &m_secondaryVideoDecodebin))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_secondaryPipeline), &m_secondaryVideoSink))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock,
+                    gstElementLink(GST_ELEMENT(&m_secondaryVideoAppSrc), &m_secondaryVideoDecodebin))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_secondaryVideoDecodebin, StrEq("pad-added"), _, _))
+            .WillOnce(Return(1));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_secondaryVideoSink))
+            .Times(testing::AnyNumber())
+            .WillRepeatedly(Return(&m_secondaryVideoSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_secondaryVideoSink)).Times(testing::AnyNumber());
+        expectSecondarySinkSignalScan(&m_secondaryVideoSink);
+
         EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_videoCaps)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
     }
 
     void secondarySourceWillBeSetup()
     {
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_secondaryRialtoSource));
-        // Source will be unreferenced when GstPlayer is destructed.
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_secondaryRialtoSource));
+        // Explicit construction has no rialtosrc source-setup step; the per-stream chain was built on attach
+        // and FinishSetupSource (driven by allSourcesAttached) configures its appsrc.
     }
 
     void willSetupAndAddSecondarySource()
     {
-        m_secondaryGstreamerStub.setupAppSrcCallbacks(&m_secondaryVideoAppSrc);
+        // FinishSetupSource::configureExplicitAppSrc: one gObjectSet (block/format/stream-type/min-percent/
+        // handle-segment-change), the data-flow callbacks, the per-type max-bytes and the stream type. No
+        // rialtosrc bin add / queue / ghost-pad.
         EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(&m_secondaryVideoAppSrc), StrEq("block")));
         EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(&m_secondaryVideoAppSrc), StrEq("format")));
         EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(&m_secondaryVideoAppSrc), StrEq("stream-type")));
         EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(&m_secondaryVideoAppSrc), StrEq("min-percent")));
         EXPECT_CALL(*m_glibWrapperMock,
                     gObjectSetStub(GST_ELEMENT(&m_secondaryVideoAppSrc), StrEq("handle-segment-change")));
+        m_secondaryGstreamerStub.setupAppSrcCallbacks(&m_secondaryVideoAppSrc);
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetMaxBytes(&m_secondaryVideoAppSrc, (8 * 1024 * 1024)));
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetStreamType(&m_secondaryVideoAppSrc, GST_APP_STREAM_TYPE_SEEKABLE));
-        EXPECT_CALL(*m_glibWrapperMock, gStrdupPrintfStub(_)).WillOnce(Return(m_sourceName.data())).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstBinAdd(GST_BIN(&m_secondaryRialtoSource), GST_ELEMENT(&m_secondaryVideoAppSrc)));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("queue"), _))
-            .WillOnce(Return(&m_secondaryQueue))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryQueue, StrEq("max-size-buffers"))).RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryQueue, StrEq("max-size-bytes"))).RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryQueue, StrEq("max-size-time"))).RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_secondaryQueue, StrEq("silent"))).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_secondaryRialtoSource), &m_secondaryQueue)).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&m_secondaryQueue)).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(GST_ELEMENT(&m_secondaryVideoAppSrc), &m_secondaryQueue));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementGetStaticPad(&m_secondaryQueue, StrEq("src")))
-            .WillOnce(Return(&m_pad))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstGhostPadNew(StrEq(m_sourceName), &m_pad))
-            .WillOnce(Return(&m_ghostPad))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstPadSetQueryFunction(&m_ghostPad, NotNullMatcher())).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstPadSetActive(&m_ghostPad, TRUE)).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstElementAddPad(GST_ELEMENT(&m_secondaryRialtoSource), &m_ghostPad))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_pad)).RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(GST_ELEMENT(&m_secondaryVideoAppSrc)));
-        EXPECT_CALL(*m_glibWrapperMock, gFree(PtrStrMatcher(m_sourceName.data()))).RetiresOnSaturation();
     }
 
     void willFinishSetupAndAddSecondarySource()
     {
-        EXPECT_CALL(*m_gstWrapperMock, gstElementNoMorePads(GST_ELEMENT(&m_secondaryRialtoSource)));
+        // Nothing further: the explicit FinishSetupSource only notifies IDLE + need-data after configuring the
+        // appsrc (no rialtosrc no-more-pads).
     }
 
     void secondaryWillPlay()
@@ -330,7 +312,11 @@ public:
         waitWorker();
     }
 
-    void setupSecondarySource() { m_secondaryGstreamerStub.setupRialtoSource(); }
+    void setupSecondarySource()
+    {
+        // Explicit construction has no rialtosrc source-setup callback; FinishSetupSource (driven by
+        // allSourcesAttached) configures the already-built secondary appsrc.
+    }
 
     void indicateAllSecondarySourcesAttached()
     {
@@ -475,20 +461,17 @@ public:
     int m_secondarySessionId{-1};
     int m_secondaryVideoSourceId{-1};
     GstElement m_secondaryPipeline{};
-    GstElement m_secondaryQueue{};
-    GstObject m_westerosFactory{};
-    GstElement m_westerosSink{};
-    GParamSpec m_rectangleSpec{};
-    char m_dummyContext{};
-    GstStructure m_contextStructure{};
     GstBus m_secondaryBus{};
-    GstElement m_secondaryPlaysink{};
     GstBin m_secondaryRialtoSrcBin = {};
     GstRialtoSrcPrivate m_secondaryRialtoSrcPriv = {};
     GstRialtoSrc m_secondaryRialtoSource = {m_secondaryRialtoSrcBin, &m_secondaryRialtoSrcPriv};
     GstreamerStub m_secondaryGstreamerStub{m_glibWrapperMock, m_gstWrapperMock, &m_secondaryPipeline, &m_secondaryBus,
                                            GST_ELEMENT(&m_secondaryRialtoSource)};
     GstAppSrc m_secondaryVideoAppSrc{};
+    // Explicit-construction chain elements for the secondary pipeline (appsrc -> decodebin -> autovideosink).
+    GstElement m_secondaryVideoDecodebin{};
+    GstElement m_secondaryVideoSink{};
+    guint m_secondarySignalIds{};
     std::shared_ptr<::firebolt::rialto::NeedMediaDataEvent> m_lastSecondaryNeedData{nullptr};
 };
 /*

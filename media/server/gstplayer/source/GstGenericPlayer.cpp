@@ -669,54 +669,33 @@ bool GstGenericPlayer::getDuration(std::int64_t &duration)
 
 GstElement *GstGenericPlayer::getSink(const MediaSourceType &mediaSourceType) const
 {
-    // Explicit construction stores its sinks directly (there is no playbin to read them off).
-    if (mediaSourceType == MediaSourceType::AUDIO && m_context.audioSink)
-    {
-        return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.audioSink)));
-    }
-    if (mediaSourceType == MediaSourceType::VIDEO && m_context.videoSink)
-    {
-        return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(m_context.videoSink)));
-    }
-
-    const char *kSinkName{nullptr};
+    // The backend-built chains store their sink in the context (audio/video in buildAudioChain /
+    // buildVideoChain, subtitle in AttachSource's buildSubtitleChain). That stored sink is the exclusive
+    // source: there is no playbin to read an "audio-sink"/"video-sink"/"text-sink" property off, and the
+    // backend creates sinks explicitly (never via autovideosink/autoaudiosink wrappers, so there is no
+    // auto-sink to unwrap either). The returned sink is ref'd; the caller unrefs it.
     GstElement *sink{nullptr};
     switch (mediaSourceType)
     {
     case MediaSourceType::AUDIO:
-        kSinkName = "audio-sink";
+        sink = m_context.audioSink;
         break;
     case MediaSourceType::VIDEO:
-        kSinkName = "video-sink";
+        sink = m_context.videoSink;
         break;
     case MediaSourceType::SUBTITLE:
-        kSinkName = "text-sink";
+        sink = m_context.subtitleSink;
         break;
     default:
+        RIALTO_SERVER_LOG_WARN("mediaSourceType not supported %d", static_cast<int>(mediaSourceType));
         break;
     }
-    if (!kSinkName)
+
+    if (sink)
     {
-        RIALTO_SERVER_LOG_WARN("mediaSourceType not supported %d", static_cast<int>(mediaSourceType));
+        return GST_ELEMENT(m_gstWrapper->gstObjectRef(GST_OBJECT(sink)));
     }
-    else
-    {
-        if (m_context.pipeline == nullptr)
-        {
-            RIALTO_SERVER_LOG_WARN("Pipeline is NULL!");
-        }
-        else
-        {
-            RIALTO_SERVER_LOG_DEBUG("Pipeline is valid: %p", m_context.pipeline);
-        }
-        // Interim property-read fallback: the explicit path stores its sinks in m_context (the branch
-        // above), so this read only fires for source types whose chain stored no sink — currently the
-        // server component suite, which has no platform backend. There is no auto-sink unwrapping: the
-        // backend creates sinks explicitly, never via autovideosink/autoaudiosink wrappers. Removing this
-        // read entirely (and migrating the component suite) is tracked in #9.
-        m_glibWrapper->gObjectGet(m_context.pipeline, kSinkName, &sink, nullptr);
-    }
-    return sink;
+    return nullptr;
 }
 
 void GstGenericPlayer::setSourceFlushed(const MediaSourceType &mediaSourceType)

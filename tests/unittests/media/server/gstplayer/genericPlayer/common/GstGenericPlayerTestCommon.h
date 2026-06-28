@@ -42,9 +42,11 @@
 #include "WorkerThreadFactoryMock.h"
 #include "WorkerThreadMock.h"
 
+#include <functional>
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace firebolt::rialto;
 using namespace firebolt::rialto::server;
@@ -126,7 +128,14 @@ protected:
     void expectNoDecoder();
     void expectNoParser();
 
+    // Seam for storing a backend sink in the SUT's context (getSink returns the stored sink). Each
+    // derived fixture implements it via its own context accessor (getContext / modifyContext).
+    virtual void applyToContext(const std::function<void(GenericPlayerContext &)> &fun) {}
+
 protected:
+    // Backend sinks stored in the context by expectGetAVSink; gstPlayerWillBeDestroyed expects termPipeline
+    // to unref each at destroy.
+    std::vector<GstElement *> m_storedSinks;
     GstElement m_pipeline{};
     GFlagsClass m_flagsClass{};
     GstElement m_playsink{};

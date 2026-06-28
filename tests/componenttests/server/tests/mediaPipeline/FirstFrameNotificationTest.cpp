@@ -30,7 +30,6 @@ using testing::StrEq;
 namespace
 {
 constexpr unsigned kFramesToPush{1};
-const std::string kElementName{"Decoder"};
 constexpr gulong kSignalId{123};
 } // namespace
 
@@ -43,7 +42,6 @@ public:
     {
         m_elementFactory = gst_element_factory_find("fakesrc");
         m_videoDecoder = gst_element_factory_create(m_elementFactory, nullptr);
-        EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(_)).WillRepeatedly(Return(m_elementFactory));
     }
 
     ~FirstFrameNotificationTest() override
@@ -52,73 +50,56 @@ public:
         gst_object_unref(m_elementFactory);
     }
 
-    void setupElementsCommon()
+    // The explicit path autoplugs the video decoder via decodebin's pad-added; once it appears,
+    // SetupVideoParser runs on the worker and connectDecoderSignals locates the decoder (getDecoder
+    // iterates the pipeline) and scans it for the underflow (no match) and first-video-frame signals,
+    // connecting the first-frame callback.
+    void willConnectVideoDecoderFirstFrame()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(_)).WillRepeatedly(Return(kElementName.c_str()));
-        EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("amlhalasink"))).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("brcmaudiosink"))).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("rialtotexttracksink"))).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_gstWrapperMock, gstIsBaseParse(_)).WillRepeatedly(Return(FALSE));
+        // getDecoder(VIDEO): iterate the pipeline, the video decoder factory matches DECODER|MEDIA_VIDEO.
+        EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline))).WillOnce(Return(&m_it));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).WillOnce(Return(GST_ITERATOR_OK));
+        EXPECT_CALL(*m_glibWrapperMock, gValueGetObject(_)).WillOnce(Return(m_videoDecoder));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(m_videoDecoder)).WillOnce(Return(m_elementFactory));
+        EXPECT_CALL(*m_gstWrapperMock,
+                    gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER |
+                                                                      GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_videoDecoder)).WillOnce(Return(m_videoDecoder));
+        EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it));
+
+        // connectStreamSignals(VIDEO): the decoder exposes only the first-video-frame signal. Both the
+        // underflow scan and the first-frame scan walk the same signal list, so the signal name is
+        // queried twice; only the first-frame scan finds a match and connects.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_videoDecoder)).Times(2).WillRepeatedly(Return(G_TYPE_PARAM));
         EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+            .Times(2)
             .WillRepeatedly(Invoke(
-                [&](GType itype, guint *n_ids)
+                [&](GType, guint *nIds)
                 {
-                    *n_ids = 1;
+                    *nIds = 1;
                     return m_signals;
                 }));
         EXPECT_CALL(*m_glibWrapperMock, gSignalQuery(m_signals[0], _))
-            .WillRepeatedly(Invoke([&](guint signal_id, GSignalQuery *query)
-                                   { query->signal_name = "first-video-frame-callback"; }));
+            .Times(2)
+            .WillRepeatedly(Invoke([&](guint, GSignalQuery *query) { query->signal_name = "first-video-frame-callback"; }));
         EXPECT_CALL(*m_glibWrapperMock, gFree(m_signals)).Times(2);
-    }
-
-    void willSetupVideoDecoder()
-    {
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_videoDecoder)).WillOnce(Return(m_videoDecoder));
-
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER))
-            .WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
-            .WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory,
-                                                GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER |
-                                                                      GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory,
-                                                GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory,
-                                                GST_ELEMENT_FACTORY_TYPE_PARSER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
-
-        EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_videoDecoder)).WillRepeatedly(Return(G_TYPE_PARAM));
-        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(_, StrEq("first-video-frame-callback"), _, _))
+        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_videoDecoder, StrEq("first-video-frame-callback"), _, _))
             .WillOnce(Invoke(
-                [&](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
+                [&](gpointer, const gchar *, GCallback c_handler, gpointer data)
                 {
                     m_firstVideoFrameCallback = c_handler;
                     m_firstVideoFrameData = data;
                     return kSignalId;
-                }))
-            .RetiresOnSaturation();
+                }));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_videoDecoder))
             .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
     }
 
     void setupVideoDecoder()
     {
-        m_gstreamerStub.setupElement(m_videoDecoder);
+        triggerVideoPadAdded();
         waitWorker();
     }
 
@@ -141,8 +122,9 @@ public:
 private:
     GstElementFactory *m_elementFactory{nullptr};
     GstElement *m_videoDecoder{nullptr};
+    GstIterator m_it{};
     guint m_signals[1]{123};
-    GCallback m_firstVideoFrameCallback;
+    GCallback m_firstVideoFrameCallback{};
     gpointer m_firstVideoFrameData{nullptr};
 };
 
@@ -177,16 +159,15 @@ private:
  *   Expect that GstPlayer instance is created.
  *   Expect that client is notified that the NetworkState has changed to BUFFERING.
  *
- *  Step 3: Setup Video Decoder
- *   Call SetupElement callback with Video Decoder
- *   First frame callback should be registered.
- *
- *  Step 4: Attach video source
+ *  Step 3: Attach video source
  *   Attach the video source.
  *   Expect that video source is attached.
- *   Expect that rialto source is setup.
  *   Expect that all sources are attached.
  *   Expect that the Playback state has changed to IDLE.
+ *
+ *  Step 4: Autoplug video decoder
+ *   Fire the video decodebin pad-added callback.
+ *   First frame callback should be registered on the autoplugged decoder.
  *
  *  Step 5: Pause
  *   Pause the content.
@@ -247,12 +228,7 @@ TEST_F(FirstFrameNotificationTest, firstFrameNotification)
     gstPlayerWillBeCreated();
     load();
 
-    // Step 3: Setup Video Decoder
-    setupElementsCommon();
-    willSetupVideoDecoder();
-    setupVideoDecoder();
-
-    // Step 4: Attach video source
+    // Step 3: Attach video source
     videoSourceWillBeAttached();
     attachVideoSource();
     sourceWillBeSetup();
@@ -260,6 +236,10 @@ TEST_F(FirstFrameNotificationTest, firstFrameNotification)
     willSetupAndAddSource(&m_videoAppSrc);
     willFinishSetupAndAddSource();
     indicateAllSourcesAttached({&m_videoAppSrc});
+
+    // Step 4: Autoplug video decoder
+    willConnectVideoDecoderFirstFrame();
+    setupVideoDecoder();
 
     // Step 5: Pause
     willPause();
