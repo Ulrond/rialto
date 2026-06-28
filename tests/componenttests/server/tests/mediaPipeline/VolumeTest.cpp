@@ -33,55 +33,48 @@ namespace firebolt::rialto::server::ct
 class VolumeTest : public MediaPipelineTest
 {
 public:
-    VolumeTest()
-    {
-        GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
-        m_audioSink = gst_element_factory_create(elementFactory, nullptr);
-        gst_object_unref(elementFactory);
-    }
-    ~VolumeTest() override { gst_object_unref(m_audioSink); }
+    VolumeTest() = default;
+    ~VolumeTest() override = default;
 
-    void mockAudioSink()
-    {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-            .WillOnce(Invoke(
-                [&](gpointer object, const gchar *first_property_name, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_audioSink;
-                }));
-
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(_)).WillRepeatedly(Return("GstStreamVolume"));
-    }
+    // getSink now returns the backend-stored audio sink (the base m_audioSink, created by the explicit
+    // audio chain on attach); there is no playbin "audio-sink" property to read.
 
     void willSetVolumeWhenVolumeDurationIsZero()
     {
-        mockAudioSink();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("audio-fade"))).Times(0);
+        // duration == 0: the immediate-volume-change branch sets the volume directly on the pipeline; the
+        // audio-fade property is never looked up. getSink refs/unrefs the audio sink. Each per-step sink
+        // unref retires on saturation so it resolves independently of the harness AnyNumber unref and the
+        // later per-step unrefs.
         EXPECT_CALL(*m_gstWrapperMock, gstStreamVolumeSetVolume(_, GST_STREAM_VOLUME_FORMAT_LINEAR, kVolume));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink))
-            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     void willSetVolumeWhenVolumeDurationMoreThanZero()
     {
-        mockAudioSink();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("audio-fade"))).WillOnce(Return(nullptr));
-        EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock, isSocAudioFadeSupported()).WillOnce(Return(true));
-
-        firebolt::rialto::wrappers::rgu_Ease convertedEaseType =
-            static_cast<firebolt::rialto::wrappers::rgu_Ease>(kEaseType);
-
-        EXPECT_CALL(*m_rdkGstreamerUtilsWrapperMock, doAudioEasingonSoc(kVolume, kVolumeDuration, convertedEaseType));
+        // duration > 0: the reference backend reports isAudioFadeSupported() == false, so the engine drives
+        // the generic sink "audio-fade" property. The audio sink (base m_audioSink, returned by getSink)
+        // exposes the property, so gObjectSet writes "<scaledTarget>,<duration>,<ease>" and audioFadeEnabled
+        // becomes true. There is no SoC isSocAudioFadeSupported/doAudioEasingonSoc path anymore.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("audio-fade")))
+            .WillOnce(Return(&m_paramSpec))
+            .RetiresOnSaturation();
+        // audio-fade carries a string value ("<scaledTarget>,<duration>,<ease>"), so the glib wrapper
+        // forwards to the string setter variant.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectSetStrStub(m_audioSink, StrEq("audio-fade"), _));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink))
-            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
+            .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished))
+            .RetiresOnSaturation();
     }
 
     void willGetFadeVolume()
     {
-        mockAudioSink();
-
-        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("fade-volume"))).WillOnce(Return(&m_paramSpec));
+        // GetVolume after a fade: audioFadeEnabled is true and the sink exposes "fade-volume", so the
+        // current volume is read from the sink (positive => fade volume returned directly).
+        EXPECT_CALL(*m_glibWrapperMock, gObjectClassFindProperty(_, StrEq("fade-volume")))
+            .WillOnce(Return(&m_paramSpec))
+            .RetiresOnSaturation();
 
         EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("fade-volume"), _))
             .WillOnce(Invoke(
@@ -91,17 +84,13 @@ public:
                     *returnVal = 50;
                 }));
 
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink)).RetiresOnSaturation();
     }
 
     void willGetVolumeFromPipeline()
     {
-        mockAudioSink();
-
         EXPECT_CALL(*m_gstWrapperMock, gstStreamVolumeGetVolume(_, GST_STREAM_VOLUME_FORMAT_LINEAR))
             .WillOnce(Return(kVolume));
-
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink));
     }
 
     void setVolumeNormal()
@@ -125,7 +114,6 @@ public:
     }
 
 private:
-    GstElement *m_audioSink{nullptr};
     GParamSpec m_paramSpec{};
 };
 

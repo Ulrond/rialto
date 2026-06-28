@@ -46,8 +46,10 @@ public:
 
     void willProcessAudioGap()
     {
-        EXPECT_CALL(*(m_rdkGstreamerUtilsWrapperMock),
-                    processAudioGap(&m_pipeline, kPosition, kDuration, kDiscontinuityGap, kIsAudioAac));
+        // The ProcessAudioGap task delegates to m_player.processAudioGap, which forwards to the platform
+        // backend. The reference LinuxPlatformBackend::processAudioGap is a no-op that returns false and
+        // makes no gst/rdk calls, so there is nothing to expect here. (SoC audio-gap handling lives in a
+        // per-SoC backend .so.)
     }
 
     void processAudioGap()
@@ -55,10 +57,6 @@ public:
         auto req{createProcessAudioGapRequest(m_sessionId, kPosition, kDuration, kDiscontinuityGap, kIsAudioAac)};
         ConfigureAction<ProcessAudioGap>(m_clientStub).send(req).expectSuccess();
     }
-
-private:
-    GstStructure m_structure{};
-    GstEvent m_event{};
 };
 
 /*

@@ -34,7 +34,6 @@ constexpr bool kAsync{true};
 } // namespace
 
 using testing::_;
-using testing::AtLeast;
 using testing::Invoke;
 using testing::Return;
 using testing::StrEq;
@@ -48,20 +47,12 @@ class FlushTest : public MediaPipelineTest
     GstSegment m_segment{};
 
 public:
-    FlushTest()
-    {
-        GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
-        m_audioSink = gst_element_factory_create(elementFactory, nullptr);
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(G_OBJECT_TYPE(m_audioSink))).WillRepeatedly(Return("audio_sink"));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink)).Times(AtLeast(0));
-        gst_object_unref(elementFactory);
-    }
+    FlushTest() = default;
 
-    ~FlushTest() override { gst_object_unref(m_audioSink); }
+    ~FlushTest() override = default;
 
     void willFlush()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(_)).WillRepeatedly(Return("GstStreamVolume"));
         EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(m_audioSink, StrEq("async"), _))
             .WillOnce(Invoke(
                 [&](gpointer object, const gchar *first_property_name, void *element)

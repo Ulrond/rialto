@@ -61,6 +61,12 @@ public:
     void willStop();
     void willSetStateInvalidForQueryPosition();
 
+    // Drive the audio/video decodebin pad-added callback captured during attach. The synchronous
+    // pad-link (gstElementGetStaticPad on the static-tail element + gstPadLink + unref) is set up here;
+    // the worker-thread decoder setup (getDecoder iteration + signal connect) is expected by the test.
+    void triggerAudioPadAdded();
+    void triggerVideoPadAdded();
+
     void createSession();
     void load();
     void attachAudioSource();
@@ -84,6 +90,10 @@ public:
     void workerFinished();
 
 private:
+    // The explicit chain builders scan the backend sink for underflow / first-video-frame signals; the
+    // reference autoaudiosink/autovideosink expose neither, so nothing is connected (audio: one scan;
+    // video: two — underflow + first-video-frame).
+    void expectSinkSignalScan(GstElement *sink, bool isVideo);
     void initShm();
     void mayReceivePositionUpdates();
     void positionUpdatesShouldNotBeReceivedFromNow();
@@ -114,6 +124,9 @@ protected:
     std::string m_sourceName{"src_0"};
     GstPad m_pad{};
     GstPad m_ghostPad{};
+    GstPad m_decoderSrcPad{};
+    GstPad m_audioConvertSinkPad{};
+    GstPad m_videoSinkPad{};
     GstElement m_queue{};
     GstEvent m_flushStartEvent{};
     GstEvent m_flushStopEvent{};
@@ -121,7 +134,19 @@ protected:
     GstSample *m_sample{nullptr};
     std::shared_ptr<::firebolt::rialto::NeedMediaDataEvent> m_lastAudioNeedData{nullptr};
     std::shared_ptr<::firebolt::rialto::NeedMediaDataEvent> m_lastVideoNeedData{nullptr};
+
+    // Explicit-construction chain elements. The reference platform backend creates autoaudiosink /
+    // autovideosink via gstElementFactoryMake; the decodebin chain elements are likewise made explicitly
+    // (no playbin). buildAudioChain / buildVideoChain assemble appsrc -> decodebin -> ... -> backend sink.
+    // The sinks are real elements (created in the fixture ctor) so the property reads getSink drives them
+    // through behave; getSink now returns these stored sinks, so tests read them directly.
+    GstElement m_audioDecodebin{};
+    GstElement m_audioConvert{};
+    GstElement m_audioResample{};
     GstElement *m_audioSink{nullptr};
+    GstElement m_videoDecodebin{};
+    GstElement *m_videoSink{nullptr};
+    guint m_signalIds{};
 
     // Position Update events may be received in PLAYING state. We have to suppress them
     // to avoid occassional test failures

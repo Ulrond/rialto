@@ -34,6 +34,7 @@
 #include <vector>
 
 using testing::_;
+using testing::AnyNumber;
 using testing::AtLeast;
 using testing::AtMost;
 using testing::DoAll;
@@ -59,6 +60,13 @@ namespace firebolt::rialto::server::ct
 {
 MediaPipelineTest::MediaPipelineTest()
 {
+    // The reference backend's autoaudiosink / autovideosink — real elements so getSink-driven property
+    // reads behave. The explicit chains store these; getSink returns them.
+    GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
+    m_audioSink = gst_element_factory_create(elementFactory, nullptr);
+    m_videoSink = gst_element_factory_create(elementFactory, nullptr);
+    gst_object_unref(elementFactory);
+
     configureSutInActiveState();
     connectClient();
     initShm();
@@ -68,31 +76,24 @@ MediaPipelineTest::~MediaPipelineTest()
 {
     positionUpdatesShouldNotBeReceivedFromNow();
     playbackInfoUpdatesShouldNotBeReceivedFromNow();
+    gst_object_unref(m_audioSink);
+    gst_object_unref(m_videoSink);
 }
 
 void MediaPipelineTest::gstPlayerWillBeCreated()
 {
     m_gstreamerStub.setupPipeline();
+    // rialtosrc is still registered by GstSrc::initSrc (the rialto-gstreamer companion's source element);
+    // the explicit server pipeline itself does not instantiate a rialtosrc bin.
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryFind(StrEq("rialtosrc"))).WillOnce(Return(nullptr));
     EXPECT_CALL(*m_gstWrapperMock, gstElementRegister(0, StrEq("rialtosrc"), _, _));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("playbin"), _)).WillOnce(Return(&m_pipeline));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeFromName(StrEq("GstPlayFlags"))).Times(4).WillRepeatedly(Return(kGstPlayFlagsType));
-    EXPECT_CALL(*m_glibWrapperMock, gTypeClassRef(kGstPlayFlagsType)).Times(4).WillRepeatedly(Return(&m_flagsClass));
-
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("audio"))).WillOnce(Return(&m_audioFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("video"))).WillOnce(Return(&m_videoFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("native-video")))
-        .WillOnce(Return(&m_nativeVideoFlag));
-    EXPECT_CALL(*m_glibWrapperMock, gFlagsGetValueByNick(&m_flagsClass, StrEq("text"))).WillOnce(Return(&m_subtitleFlag));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryFind(StrEq("brcmaudiosink"))).WillOnce(Return(nullptr));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_pipeline, StrEq("flags")));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_pipeline, StrEq("uri")));
-    EXPECT_CALL(*m_gstWrapperMock, gstBinGetByName(GST_BIN(&m_pipeline), StrEq("playsink"))).WillOnce(Return(&m_playsink));
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_playsink, StrEq("send-event-mode")));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_playsink));
+    // Explicit construction: a plain GstPipeline container. No playbin, play-flags, playsink or uri; the
+    // per-stream chains (appsrc -> decodebin -> ... -> backend sink) are built in AttachSource.
+    EXPECT_CALL(*m_gstWrapperMock, gstPipelineNew(StrEq("media_pipeline"))).WillOnce(Return(&m_pipeline));
     EXPECT_CALL(*m_gstWrapperMock, gstElementSetState(&m_pipeline, GST_STATE_READY))
         .WillOnce(Return(GST_STATE_CHANGE_SUCCESS));
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_pipeline)).Times(AtMost(1));
+    // The GstProfiler holds a ref on the pipeline while enabled.
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_pipeline)).Times(AtMost(1)).WillRepeatedly(Return(&m_pipeline));
 
     // In case of longer testruns, GstPlayer may request to query position and volume
     EXPECT_CALL(*m_gstWrapperMock, gstStateLock(_)).Times(AtLeast(0));
@@ -110,14 +111,6 @@ void MediaPipelineTest::gstPlayerWillBeCreated()
                 return true;
             }));
 
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq("audio-sink"), _))
-        .WillRepeatedly(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = m_audioSink;
-            }));
-
     EXPECT_CALL(*m_gstWrapperMock, gstStreamVolumeGetVolume(_, GST_STREAM_VOLUME_FORMAT_LINEAR))
         .Times(AtLeast(0))
         .WillRepeatedly(Return(kVolume));
@@ -133,8 +126,24 @@ void MediaPipelineTest::gstPlayerWillBeDestructed()
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_pipeline)).Times(testing::Between(1, 2));
 }
 
+void MediaPipelineTest::expectSinkSignalScan(GstElement *sink, bool isVideo)
+{
+    const int kScans = isVideo ? 2 : 1; // underflow always; first-video-frame for video too
+    EXPECT_CALL(*m_glibWrapperMock, gObjectType(sink)).Times(kScans).WillRepeatedly(Return(G_TYPE_PARAM));
+    EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+        .Times(kScans)
+        .WillRepeatedly(Invoke(
+            [&](GType, guint *nIds)
+            {
+                *nIds = 0;
+                return &m_signalIds;
+            }));
+    EXPECT_CALL(*m_glibWrapperMock, gFree(&m_signalIds)).Times(kScans);
+}
+
 void MediaPipelineTest::audioSourceWillBeAttached()
 {
+    // AttachSource builds the audio caps and the audsrc appsrc...
     EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&m_audioCaps));
     EXPECT_CALL(*m_gstWrapperMock,
                 gstCapsSetSimpleStringStub(&m_audioCaps, StrEq("alignment"), G_TYPE_STRING, StrEq("nal")));
@@ -148,6 +157,35 @@ void MediaPipelineTest::audioSourceWillBeAttached()
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("appsrc"), StrEq("audsrc")))
         .WillOnce(Return(GST_ELEMENT(&m_audioAppSrc)));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(&m_audioAppSrc, &m_audioCaps));
+
+    // ...then buildAudioChain: appsrc -> decodebin -> audioconvert -> audioresample -> autoaudiosink (from
+    // the reference platform backend). The decoder is autoplugged later via decodebin's pad-added, which the
+    // mocked decodebin never emits, so only the synchronous part runs.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("auddecodebin")))
+        .WillOnce(Return(&m_audioDecodebin));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioconvert"), StrEq("audconvert")))
+        .WillOnce(Return(&m_audioConvert));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioresample"), StrEq("audresample")))
+        .WillOnce(Return(&m_audioResample));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autoaudiosink"), StrEq("audiosink")))
+        .WillOnce(Return(m_audioSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), GST_ELEMENT(&m_audioAppSrc))).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioDecodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioConvert)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioResample)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), m_audioSink)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(GST_ELEMENT(&m_audioAppSrc), &m_audioDecodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioConvert, &m_audioResample)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioResample, m_audioSink)).WillOnce(Return(TRUE));
+    // Capture the audio decodebin pad-added callback so the test can drive the autoplugged-decoder
+    // wiring (the mocked decodebin never emits pad-added on its own).
+    m_gstreamerStub.captureAudioDecodebinPadAdded(&m_audioDecodebin);
+    // The sink is stored as m_context.audioSink and as the playback-group playsink-bin (two refs, both
+    // released by termPipeline); it is also ref'd/unref'd by getVolume during playback-info queries.
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_audioSink)).Times(AnyNumber()).WillRepeatedly(Return(m_audioSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioSink)).Times(AnyNumber());
+    expectSinkSignalScan(m_audioSink, false);
+
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_audioCaps)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
 }
 
@@ -165,54 +203,76 @@ void MediaPipelineTest::videoSourceWillBeAttached()
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("appsrc"), StrEq("vidsrc")))
         .WillOnce(Return(GST_ELEMENT(&m_videoAppSrc)));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(&m_videoAppSrc, &m_videoCaps));
+
+    // buildVideoChain: appsrc -> decodebin -> autovideosink (from the reference backend, keyed by the video
+    // id derived at construction; the reference sink is plane-agnostic).
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+        .WillOnce(Return(&m_videoDecodebin));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autovideosink"), StrEq("videosink")))
+        .WillOnce(Return(m_videoSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), GST_ELEMENT(&m_videoAppSrc))).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoDecodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), m_videoSink)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(GST_ELEMENT(&m_videoAppSrc), &m_videoDecodebin)).WillOnce(Return(TRUE));
+    // Capture the video decodebin pad-added callback so the test can drive the autoplugged-decoder
+    // wiring (the mocked decodebin never emits pad-added on its own).
+    m_gstreamerStub.captureVideoDecodebinPadAdded(&m_videoDecodebin);
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_videoSink)).Times(AnyNumber()).WillRepeatedly(Return(m_videoSink));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_videoSink)).Times(AnyNumber());
+    expectSinkSignalScan(m_videoSink, true);
+
     EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_videoCaps)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
 }
 
 void MediaPipelineTest::sourceWillBeSetup()
 {
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_rialtoSource));
-    // Source will be unreferenced when GstPlayer is destructed.
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_rialtoSource));
+    // Explicit construction has no rialtosrc source-setup step; the per-stream chains were built on attach
+    // and FinishSetupSource (driven by allSourcesAttached) configures their appsrcs.
+}
+
+void MediaPipelineTest::triggerAudioPadAdded()
+{
+    // audioDecodebinPadAdded links the autoplugged decoder's src pad to the static audioconvert tail and
+    // then schedules SetupAudioDecoder on the worker thread.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStaticPad(&m_audioConvert, StrEq("sink")))
+        .WillOnce(Return(&m_audioConvertSinkPad));
+    EXPECT_CALL(*m_gstWrapperMock, gstPadLink(&m_decoderSrcPad, &m_audioConvertSinkPad)).WillOnce(Return(GST_PAD_LINK_OK));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_audioConvertSinkPad));
+    m_gstreamerStub.triggerAudioPadAdded(&m_decoderSrcPad);
+}
+
+void MediaPipelineTest::triggerVideoPadAdded()
+{
+    // videoDecodebinPadAdded links the autoplugged decoder's src pad to the backend video sink and then
+    // schedules SetupVideoParser on the worker thread.
+    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStaticPad(m_videoSink, StrEq("sink")))
+        .WillOnce(Return(&m_videoSinkPad));
+    EXPECT_CALL(*m_gstWrapperMock, gstPadLink(&m_decoderSrcPad, &m_videoSinkPad)).WillOnce(Return(GST_PAD_LINK_OK));
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_videoSinkPad));
+    m_gstreamerStub.triggerVideoPadAdded(&m_decoderSrcPad);
 }
 
 void MediaPipelineTest::willSetupAndAddSource(GstAppSrc *appSrc)
 {
+    // FinishSetupSource::configureExplicitAppSrc: one gObjectSet (block/format/stream-type/min-percent/
+    // handle-segment-change), the data-flow callbacks, the per-type max-bytes and the stream type.
     const guint64 kMaxBytes = ((appSrc == &m_audioAppSrc) ? (512 * 1024) : (8 * 1024 * 1024));
-    m_gstreamerStub.setupAppSrcCallbacks(appSrc);
+    // configureExplicitAppSrc issues one gObjectSet with five properties; the glib wrapper forwards one
+    // gObjectSetStub per property name.
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(appSrc), StrEq("block")));
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(appSrc), StrEq("format")));
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(appSrc), StrEq("stream-type")));
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(appSrc), StrEq("min-percent")));
     EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(GST_ELEMENT(appSrc), StrEq("handle-segment-change")));
+    m_gstreamerStub.setupAppSrcCallbacks(appSrc);
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetMaxBytes(appSrc, kMaxBytes));
     EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetStreamType(appSrc, GST_APP_STREAM_TYPE_SEEKABLE));
-    EXPECT_CALL(*m_glibWrapperMock, gStrdupPrintfStub(_)).WillOnce(Return(m_sourceName.data())).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_rialtoSource), GST_ELEMENT(appSrc)));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("queue"), _)).WillOnce(Return(&m_queue)).RetiresOnSaturation();
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_queue, StrEq("max-size-buffers"))).RetiresOnSaturation();
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_queue, StrEq("max-size-bytes"))).RetiresOnSaturation();
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_queue, StrEq("max-size-time"))).RetiresOnSaturation();
-    EXPECT_CALL(*m_glibWrapperMock, gObjectSetStub(&m_queue, StrEq("silent"))).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_rialtoSource), &m_queue)).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(&m_queue)).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(GST_ELEMENT(appSrc), &m_queue));
-    EXPECT_CALL(*m_gstWrapperMock, gstElementGetStaticPad(&m_queue, StrEq("src")))
-        .WillOnce(Return(&m_pad))
-        .RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstGhostPadNew(StrEq(m_sourceName), &m_pad))
-        .WillOnce(Return(&m_ghostPad))
-        .RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstPadSetQueryFunction(&m_ghostPad, NotNullMatcher())).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstPadSetActive(&m_ghostPad, TRUE)).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstElementAddPad(GST_ELEMENT(&m_rialtoSource), &m_ghostPad)).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_pad)).RetiresOnSaturation();
-    EXPECT_CALL(*m_gstWrapperMock, gstElementSyncStateWithParent(GST_ELEMENT(appSrc)));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(PtrStrMatcher(m_sourceName.data()))).RetiresOnSaturation();
 }
 
 void MediaPipelineTest::willFinishSetupAndAddSource()
 {
-    EXPECT_CALL(*m_gstWrapperMock, gstElementNoMorePads(GST_ELEMENT(&m_rialtoSource)));
+    // Nothing further: the explicit FinishSetupSource only notifies IDLE + need-data after configuring the
+    // appsrcs (no rialtosrc no-more-pads).
 }
 
 // Only need to wait/notify here if there is no waiting for the NeedData Event
@@ -472,7 +532,8 @@ void MediaPipelineTest::attachVideoSource()
 
 void MediaPipelineTest::setupSource()
 {
-    m_gstreamerStub.setupRialtoSource();
+    // Explicit construction has no rialtosrc source-setup callback; FinishSetupSource (driven by
+    // allSourcesAttached) configures the already-built per-stream appsrcs.
 }
 
 void MediaPipelineTest::indicateAllSourcesAttached(const std::vector<GstAppSrc *> &appsrcs)

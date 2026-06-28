@@ -25,39 +25,20 @@
 #include <gst/gst.h>
 
 using testing::_;
-using testing::Invoke;
 using testing::Return;
 using testing::StrEq;
-
-namespace
-{
-const std::string kVideoSinkTypeName{"VideoSink"};
-} // namespace
 
 namespace firebolt::rialto::server::ct
 {
 class RenderFrameTest : public MediaPipelineTest
 {
 public:
-    RenderFrameTest()
-    {
-        GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
-        m_videoSink = gst_element_factory_create(elementFactory, nullptr);
-        gst_object_unref(elementFactory);
-    }
+    RenderFrameTest() = default;
 
-    ~RenderFrameTest() override { gst_object_unref(m_videoSink); }
+    ~RenderFrameTest() override = default;
 
     void willRenderFrame()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(&m_pipeline, StrEq("video-sink"), _))
-            .WillOnce(Invoke(
-                [&](gpointer, const gchar *, void *element)
-                {
-                    GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                    *elementPtr = m_videoSink;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(_)).WillOnce(Return(kVideoSinkTypeName.c_str()));
         EXPECT_CALL(*m_glibWrapperMock,
                     gObjectClassFindProperty(G_OBJECT_GET_CLASS(m_videoSink), StrEq("frame-step-on-preroll")))
             .WillOnce(Return(&m_paramSpec));
@@ -67,7 +48,6 @@ public:
             .WillOnce(Return(&m_newStepEvent));
         EXPECT_CALL(*m_glibWrapperMock, gObjectSetIntStub(_, StrEq("frame-step-on-preroll"), 0)).Times(1);
         EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(_, &m_newStepEvent));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(GST_OBJECT(m_videoSink)));
     }
 
     void renderFrame()
@@ -83,7 +63,6 @@ public:
     }
 
 private:
-    GstElement *m_videoSink{nullptr};
     GParamSpec m_paramSpec{};
     GstEvent m_newStepEvent{};
 };

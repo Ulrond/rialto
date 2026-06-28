@@ -47,6 +47,15 @@ public:
 
     void willFlushAudioSource()
     {
+        // Flush queries the audio sink's "async" property (via getSink(AUDIO) -> m_audioSink) to decide
+        // whether the flush is asynchronous; the reference sink reports async.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(m_audioSink, StrEq("async"), _))
+            .WillOnce(Invoke(
+                [](gpointer, const gchar *, void *val)
+                {
+                    gboolean *returnVal = reinterpret_cast<gboolean *>(val);
+                    *returnVal = TRUE;
+                }));
         EXPECT_CALL(*m_gstWrapperMock, gstEventNewFlushStart()).WillOnce(Return(&m_flushStartEvent));
         EXPECT_CALL(*m_gstWrapperMock, gstElementSendEvent(GST_ELEMENT(&m_audioAppSrc), &m_flushStartEvent))
             .WillOnce(Return(true));
@@ -90,6 +99,16 @@ public:
 
     void willSwitchAudioSource()
     {
+        // reattachSource refreshes the audio playback group from the live graph before comparing caps:
+        // getDecoder + getParser iterate the pipeline, getAudioTypefind iterates the audio decodebin.
+        // Nothing matches, so each iteration completes immediately. The reference backend has no SoC
+        // amlhalasink check in the engine; that has moved behind the platform backend's switchAudioCodec.
+        EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline))).Times(2).WillRepeatedly(Return(&m_it));
+        EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_audioDecodebin))).WillOnce(Return(&m_it));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).Times(3).WillRepeatedly(Return(GST_ITERATOR_DONE));
+        EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_)).Times(3);
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it)).Times(3);
+
         EXPECT_CALL(*m_gstWrapperMock, gstCapsNewEmptySimple(StrEq("audio/mpeg"))).WillOnce(Return(&m_newCaps));
         EXPECT_CALL(*m_gstWrapperMock,
                     gstCapsSetSimpleStringStub(&m_newCaps, StrEq("alignment"), G_TYPE_STRING, StrEq("nal")));
@@ -100,6 +119,7 @@ public:
                     gstCapsSetSimpleIntStub(&m_newCaps, StrEq("channels"), G_TYPE_INT, kNumOfChannels));
         EXPECT_CALL(*m_gstWrapperMock, gstCapsSetSimpleIntStub(&m_newCaps, StrEq("rate"), G_TYPE_INT, kSampleRate));
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcGetCaps(&m_audioAppSrc)).WillOnce(Return(&m_audioCaps));
+        // Caps are equal, so the codec switch is skipped (no switchAudioCodec / backend call).
         EXPECT_CALL(*m_gstWrapperMock, gstCapsIsEqual(&m_newCaps, &m_audioCaps)).WillOnce(Return(true));
         EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_newCaps));
         EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_audioCaps)).WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
@@ -115,6 +135,7 @@ public:
 
 private:
     GstCaps m_newCaps{};
+    GstIterator m_it{};
 };
 
 /*

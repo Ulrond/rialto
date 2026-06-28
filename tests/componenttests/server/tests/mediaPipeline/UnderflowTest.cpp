@@ -30,7 +30,6 @@ using testing::StrEq;
 namespace
 {
 constexpr unsigned kFramesToPush{1};
-const std::string kElementName{"Decoder"};
 constexpr gulong kSignalId{123};
 } // namespace
 
@@ -44,7 +43,6 @@ public:
         m_elementFactory = gst_element_factory_find("fakesrc");
         m_audioDecoder = gst_element_factory_create(m_elementFactory, nullptr);
         m_videoDecoder = gst_element_factory_create(m_elementFactory, nullptr);
-        EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(_)).WillRepeatedly(Return(m_elementFactory));
     }
 
     ~UnderflowTest() override
@@ -54,116 +52,99 @@ public:
         gst_object_unref(m_elementFactory);
     }
 
-    void setupElementsCommon()
+    // The explicit path autoplugs the decoder via decodebin's pad-added; once it appears,
+    // SetupAudioDecoder / SetupVideoParser run on the worker and connectDecoderSignals locates the
+    // decoder (getDecoder iterates the pipeline) and scans it for the underflow signal, connecting the
+    // matching callback.
+    void willConnectAudioDecoderUnderflow()
     {
-        EXPECT_CALL(*m_glibWrapperMock, gTypeName(_)).WillRepeatedly(Return(kElementName.c_str()));
-        EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("amlhalasink"))).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("brcmaudiosink"))).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_glibWrapperMock, gStrHasPrefix(_, StrEq("rialtotexttracksink"))).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_gstWrapperMock, gstIsBaseParse(_)).WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory,
-                                                GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
-            .WillRepeatedly(Return(FALSE));
-        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
-            .WillRepeatedly(Invoke(
-                [&](GType itype, guint *n_ids)
-                {
-                    *n_ids = 1;
-                    return m_signals;
-                }));
-        EXPECT_CALL(*m_glibWrapperMock, gSignalQuery(m_signals[0], _))
-            .WillRepeatedly(Invoke([&](guint signal_id, GSignalQuery *query)
-                                   { query->signal_name = "buffer-underflow-callback"; }));
-        EXPECT_CALL(*m_glibWrapperMock, gFree(m_signals)).Times(4);
-    }
-
-    void willSetupAudioDecoder()
-    {
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_audioDecoder)).WillOnce(Return(m_audioDecoder));
-
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER))
-            .WillOnce(Return(TRUE));
-
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(TRUE));
-
+        // getDecoder(AUDIO): iterate the pipeline, the audio decoder factory matches DECODER|MEDIA_AUDIO.
+        EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline))).WillOnce(Return(&m_it));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).WillOnce(Return(GST_ITERATOR_OK));
+        EXPECT_CALL(*m_glibWrapperMock, gValueGetObject(_)).WillOnce(Return(m_audioDecoder));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(m_audioDecoder)).WillOnce(Return(m_elementFactory));
         EXPECT_CALL(*m_gstWrapperMock,
                     gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER |
                                                                       GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(TRUE))
-            .RetiresOnSaturation();
-        EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_audioDecoder)).WillRepeatedly(Return(G_TYPE_PARAM));
-        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(_, _, _, _))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_audioDecoder)).WillOnce(Return(m_audioDecoder));
+        EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it));
+
+        // connectStreamSignals: scan the decoder for the underflow signal and connect it.
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_audioDecoder)).WillOnce(Return(G_TYPE_PARAM));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
             .WillOnce(Invoke(
-                [&](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
+                [&](GType, guint *nIds)
+                {
+                    *nIds = 1;
+                    return m_signals;
+                }));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalQuery(m_signals[0], _))
+            .WillOnce(Invoke([&](guint, GSignalQuery *query) { query->signal_name = "buffer-underflow-callback"; }));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(m_signals));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_audioDecoder, StrEq("buffer-underflow-callback"), _, _))
+            .WillOnce(Invoke(
+                [&](gpointer, const gchar *, GCallback c_handler, gpointer data)
                 {
                     m_audioUnderflowCallback = c_handler;
                     m_audioUnderflowData = data;
                     return kSignalId;
-                }))
-            .RetiresOnSaturation();
+                }));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_audioDecoder))
             .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
     }
 
-    void willSetupVideoDecoder()
+    void willConnectVideoDecoderUnderflow()
     {
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_videoDecoder)).WillOnce(Return(m_videoDecoder));
-
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER))
-            .WillOnce(Return(TRUE));
-
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(FALSE));
-
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
-            .WillOnce(Return(TRUE));
-
+        // getDecoder(VIDEO): iterate the pipeline, the video decoder factory matches DECODER|MEDIA_VIDEO.
+        EXPECT_CALL(*m_gstWrapperMock, gstBinIterateRecurse(GST_BIN(&m_pipeline))).WillOnce(Return(&m_it));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorNext(&m_it, _)).WillOnce(Return(GST_ITERATOR_OK));
+        EXPECT_CALL(*m_glibWrapperMock, gValueGetObject(_)).WillOnce(Return(m_videoDecoder));
+        EXPECT_CALL(*m_gstWrapperMock, gstElementGetFactory(m_videoDecoder)).WillOnce(Return(m_elementFactory));
         EXPECT_CALL(*m_gstWrapperMock,
                     gstElementFactoryListIsType(m_elementFactory, GST_ELEMENT_FACTORY_TYPE_DECODER |
-                                                                      GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
+                                                                      GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
+            .WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(m_videoDecoder)).WillOnce(Return(m_videoDecoder));
+        EXPECT_CALL(*m_glibWrapperMock, gValueUnset(_));
+        EXPECT_CALL(*m_gstWrapperMock, gstIteratorFree(&m_it));
 
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory,
-                                                GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
-
-        EXPECT_CALL(*m_gstWrapperMock,
-                    gstElementFactoryListIsType(m_elementFactory,
-                                                GST_ELEMENT_FACTORY_TYPE_PARSER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO))
-            .WillOnce(Return(FALSE))
-            .RetiresOnSaturation();
-
-        EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_videoDecoder)).WillRepeatedly(Return(G_TYPE_PARAM));
-        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(_, StrEq("buffer-underflow-callback"), _, _))
+        // connectStreamSignals(VIDEO): underflow scan + connect, then first-video-frame scan (no match).
+        EXPECT_CALL(*m_glibWrapperMock, gObjectType(m_videoDecoder)).Times(2).WillRepeatedly(Return(G_TYPE_PARAM));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalListIds(_, _))
+            .Times(2)
+            .WillRepeatedly(Invoke(
+                [&](GType, guint *nIds)
+                {
+                    *nIds = 1;
+                    return m_signals;
+                }));
+        EXPECT_CALL(*m_glibWrapperMock, gSignalQuery(m_signals[0], _))
+            .Times(2)
+            .WillRepeatedly(Invoke([&](guint, GSignalQuery *query) { query->signal_name = "buffer-underflow-callback"; }));
+        EXPECT_CALL(*m_glibWrapperMock, gFree(m_signals)).Times(2);
+        EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(m_videoDecoder, StrEq("buffer-underflow-callback"), _, _))
             .WillOnce(Invoke(
-                [&](gpointer instance, const gchar *detailed_signal, GCallback c_handler, gpointer data)
+                [&](gpointer, const gchar *, GCallback c_handler, gpointer data)
                 {
                     m_videoUnderflowCallback = c_handler;
                     m_videoUnderflowData = data;
                     return kSignalId;
-                }))
-            .RetiresOnSaturation();
+                }));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(m_videoDecoder))
             .WillOnce(Invoke(this, &MediaPipelineTest::workerFinished));
     }
 
     void setupAudioDecoder()
     {
-        m_gstreamerStub.setupElement(m_audioDecoder);
+        triggerAudioPadAdded();
         waitWorker();
     }
 
     void setupVideoDecoder()
     {
-        m_gstreamerStub.setupElement(m_videoDecoder);
+        triggerVideoPadAdded();
         waitWorker();
     }
 
@@ -191,7 +172,7 @@ public:
         ASSERT_TRUE(m_videoUnderflowCallback);
         ASSERT_TRUE(m_videoUnderflowData);
         reinterpret_cast<void (*)(GstElement *, guint, gpointer, gpointer)>(
-            m_videoUnderflowCallback)(m_audioDecoder, 0, nullptr, m_videoUnderflowData);
+            m_videoUnderflowCallback)(m_videoDecoder, 0, nullptr, m_videoUnderflowData);
 
         auto receivedBufferUnderflow{expectedBufferUnderflow.getMessage()};
         ASSERT_TRUE(receivedBufferUnderflow);
@@ -203,10 +184,11 @@ private:
     GstElementFactory *m_elementFactory{nullptr};
     GstElement *m_audioDecoder{nullptr};
     GstElement *m_videoDecoder{nullptr};
+    GstIterator m_it{};
     guint m_signals[1]{123};
-    GCallback m_audioUnderflowCallback;
+    GCallback m_audioUnderflowCallback{};
     gpointer m_audioUnderflowData{nullptr};
-    GCallback m_videoUnderflowCallback;
+    GCallback m_videoUnderflowCallback{};
     gpointer m_videoUnderflowData{nullptr};
 };
 /*
@@ -241,22 +223,21 @@ private:
  *   Expect that GstPlayer instance is created.
  *   Expect that client is notified that the NetworkState has changed to BUFFERING.
  *
- *  Step 3: Setup Audio Decoder
- *   Call SetupElement callback with Audio Decoder
- *   Audio Underflow callback should be registered
- *
- *  Step 4: Setup Video Decoder
- *   Call SetupElement callback with Video Decoder
- *   Video Underflow callback should be registered
- *
- *  Step 5: Attach all sources
+ *  Step 3: Attach all sources
  *   Attach the audio source.
  *   Expect that audio source is attached.
  *   Attach the video source.
  *   Expect that video source is attached.
- *   Expect that rialto source is setup
  *   Expect that all sources are attached.
  *   Expect that the Playback state has changed to IDLE.
+ *
+ *  Step 4: Autoplug audio decoder
+ *   Fire the audio decodebin pad-added callback.
+ *   Audio Underflow callback should be registered on the autoplugged decoder.
+ *
+ *  Step 5: Autoplug video decoder
+ *   Fire the video decodebin pad-added callback.
+ *   Video Underflow callback should be registered on the autoplugged decoder.
  *
  *  Step 6: Pause
  *   Pause the content.
@@ -339,16 +320,7 @@ TEST_F(UnderflowTest, underflow)
     gstPlayerWillBeCreated();
     load();
 
-    // Step 3: Setup Audio Decoder
-    setupElementsCommon();
-    willSetupAudioDecoder();
-    setupAudioDecoder();
-
-    // Step 4: Setup Video Decoder
-    willSetupVideoDecoder();
-    setupVideoDecoder();
-
-    // Step 5: Attach all sources
+    // Step 3: Attach all sources
     audioSourceWillBeAttached();
     attachAudioSource();
     videoSourceWillBeAttached();
@@ -359,6 +331,14 @@ TEST_F(UnderflowTest, underflow)
     willSetupAndAddSource(&m_videoAppSrc);
     willFinishSetupAndAddSource();
     indicateAllSourcesAttached({&m_audioAppSrc, &m_videoAppSrc});
+
+    // Step 4: Autoplug audio decoder
+    willConnectAudioDecoderUnderflow();
+    setupAudioDecoder();
+
+    // Step 5: Autoplug video decoder
+    willConnectVideoDecoderUnderflow();
+    setupVideoDecoder();
 
     // Step 6: Pause
     willPause();
