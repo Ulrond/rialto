@@ -46,13 +46,12 @@ web-audio leaf path. Decision: **Option A** (backend owns topology; *generic* de
 it out of the core would duplicate it across every per-SoC backend, the opposite of the no-debt goal). Component suite
 passed with **zero harness changes** — proof the core→backend relocation is behaviour-preserving.
 
-**Layering nailed down (folded into the LLD v0.7 + #13).** Three seams, kept distinct: (1) app↔engine (northbound MSE +
-native API, agnostic); (2) engine↔platform = `IPlatformBackend` (GStreamer-coupled *on purpose*; owns element creation +
-topology + secure path); (3) the engine itself (GStreamer; PipeWire only a candidate). **AIDL/RDK-HAL is an implementation
-*behind* seam 2** (the per-SoC `.so` is/wraps the Binder client), **not** a peer of it. **PipeWire is a seam-3 (engine)
-swap** that would *re-cut* seam 2 — it does not slot behind `IPlatformBackend`. The engine-neutral platform interface those
-three would realize is deliberately **not built now** (GStreamer is the only confirmed engine); discipline = keep seam-2
-*semantics* engine-neutral even while its *types* are GStreamer's.
+**Layering nailed down (folded into the LLD v0.7 + #13).** Two seams, kept distinct: (1) app↔engine (northbound MSE +
+native API, agnostic); (2) engine↔platform = `IPlatformBackend` (deals in `GstElement` subgraphs because the engine is
+GStreamer; owns element creation + topology + secure path). **AIDL/RDK-HAL is an implementation *behind* seam 2** (the
+per-SoC `.so` is/wraps the Binder client), **not** a peer of it — a platform can move to AIDL at its own pace without the
+core or other platforms noticing. Discipline = keep seam-2 *semantics* engine-neutral (decode/render/secure/window/
+audio-path) even while its *types* are GStreamer's.
 
 **Risk register (correctness) — current standing:** R1 engine-core-owns-topology → **FIXED (#14)**. R2 secure-path → **not a
 live leak** (svppay dead, svpEnabled neutral) — dead-code cleanup later. R3 registry-probe caps → #13. R4 LinuxPlatformBackend
