@@ -63,6 +63,70 @@ GstElement *LinuxPlatformBackend::createVideoSink(const std::string &name, uint3
     return m_gstWrapper->gstElementFactoryMake("autovideosink", name.c_str());
 }
 
+PlatformMediaPath LinuxPlatformBackend::buildAudioPath(GstElement *pipeline, GstElement *source)
+{
+    if (!m_gstWrapper || !pipeline || !source)
+        return {};
+
+    // Reference (x86) audio topology, owned here as a peer to any per-SoC backend. decodebin autoplugs
+    // only the decoder, keeping a ~4-element graph without a hand-maintained codec->factory map; the
+    // static tail and the autoaudiosink are built explicitly. A device backend with a fused HW audio
+    // path would instead build source -> vendor-sink and return {sink, nullptr, nullptr}.
+    GstElement *decodebin = m_gstWrapper->gstElementFactoryMake("decodebin", "auddecodebin");
+    GstElement *audioConvert = m_gstWrapper->gstElementFactoryMake("audioconvert", "audconvert");
+    GstElement *audioResample = m_gstWrapper->gstElementFactoryMake("audioresample", "audresample");
+    GstElement *audioSink = createAudioSink("audiosink");
+
+    if (!decodebin || !audioConvert || !audioResample || !audioSink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to create the reference audio path elements");
+        return {};
+    }
+
+    GstBin *pipelineBin = GST_BIN(pipeline);
+    m_gstWrapper->gstBinAdd(pipelineBin, decodebin);
+    m_gstWrapper->gstBinAdd(pipelineBin, audioConvert);
+    m_gstWrapper->gstBinAdd(pipelineBin, audioResample);
+    m_gstWrapper->gstBinAdd(pipelineBin, audioSink);
+
+    // Static links: appsrc -> decodebin, and the static tail audioconvert -> audioresample -> sink.
+    // The decoder's src pad is created dynamically by decodebin, so the engine links it to the returned
+    // decoderLinkTarget (audioconvert) in its pad-added handler.
+    m_gstWrapper->gstElementLink(source, decodebin);
+    m_gstWrapper->gstElementLink(audioConvert, audioResample);
+    m_gstWrapper->gstElementLink(audioResample, audioSink);
+
+    return {audioSink, decodebin, audioConvert};
+}
+
+PlatformMediaPath LinuxPlatformBackend::buildVideoPath(GstElement *pipeline, GstElement *source, uint32_t videoId)
+{
+    if (!m_gstWrapper || !pipeline || !source)
+        return {};
+
+    // Reference (x86) video topology, mirroring the audio one: decodebin autoplugs only the decoder and
+    // the plane-agnostic autovideosink is the output. The decoder's src pad links directly to the sink
+    // (no convert tail), so the returned decoderLinkTarget is the sink itself.
+    GstElement *decodebin = m_gstWrapper->gstElementFactoryMake("decodebin", "viddecodebin");
+    GstElement *videoSink = createVideoSink("videosink", videoId);
+
+    if (!decodebin || !videoSink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to create the reference video path elements");
+        return {};
+    }
+
+    GstBin *pipelineBin = GST_BIN(pipeline);
+    m_gstWrapper->gstBinAdd(pipelineBin, decodebin);
+    m_gstWrapper->gstBinAdd(pipelineBin, videoSink);
+
+    // Static link appsrc -> decodebin; the decoder's dynamic src pad is linked to the video sink by the
+    // engine's pad-added handler (decoderLinkTarget == the sink).
+    m_gstWrapper->gstElementLink(source, decodebin);
+
+    return {videoSink, decodebin, videoSink};
+}
+
 bool LinuxPlatformBackend::isVideoMaster() const
 {
     // The reference backend has no amlhalasink-style audio-master sink, so the Linux

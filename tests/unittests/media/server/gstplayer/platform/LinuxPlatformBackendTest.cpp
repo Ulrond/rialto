@@ -68,15 +68,70 @@ TEST_F(LinuxPlatformBackendTest, CreateAudioSinkReturnsAutoaudiosinkWithNoSocPro
 }
 
 /**
- * The reference backend is plane-agnostic: it returns autovideosink and accepts (but
- * ignores) the videoId, performing no SoC-specific plane binding.
+ * The reference backend owns the x86 audio topology (it is "just another SoC"): buildAudioPath
+ * constructs decodebin -> audioconvert -> audioresample -> autoaudiosink, adds them to the pipeline,
+ * statically links the appsrc head and the convert->resample->sink tail, and returns the handles the
+ * engine needs — sink (autoaudiosink), decodebin, and decoderLinkTarget (audioconvert, the element the
+ * dynamic decoder src pad links into). The engine creates and links no media element of its own.
  */
-TEST_F(LinuxPlatformBackendTest, CreateVideoSinkReturnsAutovideosink)
+TEST_F(LinuxPlatformBackendTest, BuildAudioPathConstructsAndLinksReferenceTopology)
 {
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autovideosink"), StrEq("videosink")))
-        .WillOnce(Return(&m_sink));
+    GstElement source{};
+    GstElement decodebin{};
+    GstElement audioConvert{};
+    GstElement audioResample{};
+    GstElement audioSink{};
 
-    EXPECT_EQ(m_sut.createVideoSink("videosink", 1), &m_sink);
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("auddecodebin")))
+        .WillOnce(Return(&decodebin));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioconvert"), StrEq("audconvert")))
+        .WillOnce(Return(&audioConvert));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioresample"), StrEq("audresample")))
+        .WillOnce(Return(&audioResample));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autoaudiosink"), StrEq("audiosink")))
+        .WillOnce(Return(&audioSink));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &audioConvert)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &audioResample)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &audioSink)).WillOnce(Return(TRUE));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&source, &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&audioConvert, &audioResample)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&audioResample, &audioSink)).WillOnce(Return(TRUE));
+
+    const PlatformMediaPath path{m_sut.buildAudioPath(&m_pipeline, &source)};
+    EXPECT_EQ(path.sink, &audioSink);
+    EXPECT_EQ(path.decodebin, &decodebin);
+    EXPECT_EQ(path.decoderLinkTarget, &audioConvert);
+}
+
+/**
+ * The reference backend owns the x86 video topology: buildVideoPath constructs decodebin ->
+ * autovideosink (plane-agnostic, videoId accepted but ignored), adds them, statically links the appsrc
+ * head, and returns sink == decoderLinkTarget == autovideosink (the decoder src pad links straight to
+ * the sink — no convert tail) plus the decodebin.
+ */
+TEST_F(LinuxPlatformBackendTest, BuildVideoPathConstructsAndLinksReferenceTopology)
+{
+    GstElement source{};
+    GstElement decodebin{};
+    GstElement videoSink{};
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
+        .WillOnce(Return(&decodebin));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("autovideosink"), StrEq("videosink")))
+        .WillOnce(Return(&videoSink));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &decodebin)).WillOnce(Return(TRUE));
+    EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &videoSink)).WillOnce(Return(TRUE));
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&source, &decodebin)).WillOnce(Return(TRUE));
+
+    const PlatformMediaPath path{m_sut.buildVideoPath(&m_pipeline, &source, 1)};
+    EXPECT_EQ(path.sink, &videoSink);
+    EXPECT_EQ(path.decodebin, &decodebin);
+    EXPECT_EQ(path.decoderLinkTarget, &videoSink);
 }
 
 /**

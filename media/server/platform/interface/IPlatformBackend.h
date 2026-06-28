@@ -53,8 +53,15 @@ namespace firebolt::rialto::server
  * knowledge out of the engine core; v5 folds the mid-stream audio codec switch
  * (switchAudioCodec) behind the seam; v6 adds the capability-probe skip
  * (shouldSkipCapabilityProbe), moving the last SoC element-name check (rtkv1sink)
- * out of the engine core. New methods are appended; existing ones are frozen, so a
- * v2 backend stays valid against v2 cases.
+ * out of the engine core; v7 moves the audio/video pipeline *topology* behind the
+ * seam (buildAudioPath / buildVideoPath) so the engine core builds no media graph —
+ * the backend constructs and links its own subgraph between the engine's appsrc and
+ * the pipeline. "Linux is just another SoC": the reference backend owns the x86
+ * topology (decodebin -> audioconvert -> audioresample -> autoaudiosink) the same way
+ * a device backend owns its own (e.g. appsrc -> vendor-sink for a fused HW path).
+ * New methods are appended; existing ones are frozen. (createVideoSink became a
+ * reference-backend internal helper of buildVideoPath; createAudioSink stays for the
+ * web-audio leaf-sink path.)
  *
  * The backend is loaded as a separate `.so` via the extern "C" entrypoints below
  * and version-checked, so a vendor layer can be upgraded without rebuilding or
@@ -66,7 +73,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 6;
+constexpr uint32_t kPlatformBackendAbiVersion = 7;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -107,6 +114,33 @@ struct AudioCodecSwitchContext
     uint32_t codecSpecificDataLen{0};
 };
 
+/**
+ * @brief Handles the engine core needs back after the backend builds a media path (ABI v7).
+ *
+ * The backend constructs and links its own audio/video subgraph between the engine's appsrc and
+ * the pipeline (it owns the topology). It returns only the handles the engine needs for its
+ * generic, non-SoC bookkeeping:
+ *  - sink:             the output element — the engine applies pending sink properties to it,
+ *                      stores it for getSink, and uses it as the audio-output branch the
+ *                      playback-group's halt/resume gate.
+ *  - decodebin:        the autoplugging bin whose dynamic decoder src pad the engine links to
+ *                      decoderLinkTarget, and on which it schedules the decoder/parser setup.
+ *                      nullptr for a fused-decode topology (e.g. appsrc -> vendor-sink) — the
+ *                      engine then does no decoder wiring; the backend owns it.
+ *  - decoderLinkTarget: the element decodebin's dynamic src pad links into (audioconvert on the
+ *                      reference audio path; the video sink on the reference video path).
+ *                      nullptr when decodebin is nullptr.
+ *
+ * The engine names no SoC and creates/links no media element of its own; the returned handle
+ * types are plain GStreamer elements.
+ */
+struct PlatformMediaPath
+{
+    GstElement *sink{nullptr};
+    GstElement *decodebin{nullptr};
+    GstElement *decoderLinkTarget{nullptr};
+};
+
 class IPlatformBackend
 {
 public:
@@ -123,11 +157,13 @@ public:
     virtual const char *platformName() const = 0;
 
     /**
-     * @brief Creates the platform's audio sink as a GStreamer element.
+     * @brief Creates the platform's audio sink as a standalone GStreamer element.
      *
-     * Device backends return a vendor sink (amlhalasink / rtkaudiosink); the Linux
-     * backend returns autoaudiosink. Returned element carries a floating ref for
-     * the caller to add to the pipeline.
+     * The leaf-sink primitive, used where the engine builds its own simple graph and only needs
+     * the sink — today the web-audio path (raw PCM, no decode). Device backends return a vendor
+     * sink (amlhalasink / rtkaudiosink); the Linux backend returns autoaudiosink. Returned element
+     * carries a floating ref for the caller to add to the pipeline. (The decode audio/video paths
+     * use buildAudioPath / buildVideoPath, where the backend owns the whole subgraph.)
      *
      * @param[in] name : Element instance name.
      * @retval the new sink element, or nullptr on failure.
@@ -135,19 +171,36 @@ public:
     virtual GstElement *createAudioSink(const std::string &name) = 0;
 
     /**
-     * @brief Creates the platform's video sink as a GStreamer element, bound to a video plane.
+     * @brief Builds the platform's audio decode path between the engine's appsrc and the pipeline (ABI v7).
      *
-     * Device backends return the vendor sink (e.g. westerossink) bound to the plane via
-     * setWesterosSinkVideoID(videoId); the Linux backend returns autovideosink.
+     * The backend creates, adds to the pipeline, and statically links its own audio subgraph from
+     * source (the engine's appsrc, already added to the pipeline) to its output sink — it owns the
+     * topology. The reference Linux backend builds source -> decodebin -> audioconvert ->
+     * audioresample -> autoaudiosink; a device backend may build source -> vendor-sink (fused
+     * decode+render, compressed passthrough) instead. Returns the handles the engine needs for its
+     * generic bookkeeping (see PlatformMediaPath). The engine names no SoC and builds no element.
      *
-     * @param[in] name    : Element instance name.
-     * @param[in] videoId : Video/plane resource ID — a static binding to the output plane
-     *                      (0 = Main, 1 = PiP), aligning with MediaSessionConfig.output. This
-     *                      supersedes the primary/secondary boolean: setWesterossinkSecondaryVideo
-     *                      is a capability query, not a sink-creation, so it never fit here.
-     * @retval the new sink element, or nullptr on failure.
+     * @param[in] pipeline : The pipeline to add the subgraph to.
+     * @param[in] source   : The engine's audio appsrc (already added to the pipeline).
+     * @retval the built path's handles; sink == nullptr on failure.
      */
-    virtual GstElement *createVideoSink(const std::string &name, uint32_t videoId) = 0;
+    virtual PlatformMediaPath buildAudioPath(GstElement *pipeline, GstElement *source) = 0;
+
+    /**
+     * @brief Builds the platform's video decode path between the engine's appsrc and the pipeline (ABI v7).
+     *
+     * As buildAudioPath, for video, with the sink bound to a video plane. The reference Linux backend
+     * builds source -> decodebin -> autovideosink (the decoder src pad links to the sink); a device
+     * backend may build its own topology and bind the vendor sink to the plane via
+     * setWesterosSinkVideoID(videoId).
+     *
+     * @param[in] pipeline : The pipeline to add the subgraph to.
+     * @param[in] source   : The engine's video appsrc (already added to the pipeline).
+     * @param[in] videoId  : Video/plane resource ID — a static binding to the output plane
+     *                       (0 = Main, 1 = PiP), aligning with MediaSessionConfig.output.
+     * @retval the built path's handles; sink == nullptr on failure.
+     */
+    virtual PlatformMediaPath buildVideoPath(GstElement *pipeline, GstElement *source, uint32_t videoId) = 0;
 
     /**
      * @brief Whether the platform drives playback as video-master (ABI v3).

@@ -50,7 +50,8 @@ public:
 
     const char *platformName() const override;
     GstElement *createAudioSink(const std::string &name) override;
-    GstElement *createVideoSink(const std::string &name, uint32_t videoId) override;
+    PlatformMediaPath buildAudioPath(GstElement *pipeline, GstElement *source) override;
+    PlatformMediaPath buildVideoPath(GstElement *pipeline, GstElement *source, uint32_t videoId) override;
     bool isVideoMaster() const override;
     bool applyPlaybackRate(GstElement *pipeline, double rate) override;
     bool isAudioFadeSupported() const override;
@@ -61,6 +62,10 @@ public:
     bool shouldSkipCapabilityProbe(const std::string &elementName) const override;
 
 private:
+    // Reference video leaf-sink helper (autovideosink, plane-agnostic). Used internally by
+    // buildVideoPath; a per-SoC backend binds its vendor sink to videoId here instead.
+    GstElement *createVideoSink(const std::string &name, uint32_t videoId);
+
     // Transitional amlhalasink fork helpers (moved verbatim out of the engine core; they will move
     // down into a per-SoC .so once one is authored). They operate on a local PlaybackGroupPrivate
     // built from the neutral AudioCodecSwitchContext, not on any engine state.
