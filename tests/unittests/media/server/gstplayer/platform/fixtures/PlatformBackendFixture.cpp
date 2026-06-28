@@ -36,7 +36,11 @@ class FixtureBackend : public firebolt::rialto::server::IPlatformBackend
 public:
     const char *platformName() const override { return "fixture"; }
     GstElement *createAudioSink(const std::string &) override { return nullptr; }
-    GstElement *createVideoSink(const std::string &, uint32_t) override { return nullptr; }
+    firebolt::rialto::server::PlatformMediaPath buildAudioPath(GstElement *, GstElement *) override { return {}; }
+    firebolt::rialto::server::PlatformMediaPath buildVideoPath(GstElement *, GstElement *, uint32_t) override
+    {
+        return {};
+    }
     bool isVideoMaster() const override { return true; }
     bool applyPlaybackRate(GstElement *, double) override { return true; }
     bool isAudioFadeSupported() const override { return false; }

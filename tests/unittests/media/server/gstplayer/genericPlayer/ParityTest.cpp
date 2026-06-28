@@ -132,21 +132,11 @@ protected:
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_appSrc), &m_audioCaps));
         EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_audioCaps));
 
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("auddecodebin")))
-            .WillOnce(Return(&m_decodebin));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioconvert"), StrEq("audconvert")))
-            .WillOnce(Return(&m_audioConvert));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("audioresample"), StrEq("audresample")))
-            .WillOnce(Return(&m_audioResample));
-        EXPECT_CALL(*m_platformBackendMock, createAudioSink(StrEq("audiosink"))).WillOnce(Return(&m_audioSink));
+        // The engine adds its appsrc, then the backend builds + links its own audio subgraph and returns
+        // the handles; the engine creates and links no media element itself.
         EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_appSrc)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_decodebin)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioConvert)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioResample)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_audioSink)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_appSrc, &m_decodebin)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioConvert, &m_audioResample)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_audioResample, &m_audioSink)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_platformBackendMock, buildAudioPath(&m_pipeline, &m_appSrc))
+            .WillOnce(Return(PlatformMediaPath{&m_audioSink, &m_decodebin, &m_audioConvert}));
         EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_decodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
         // The sink is stored twice (each with its own ref): as m_context.audioSink and as the
         // playback group's audio playsink-bin analogue; both released by termPipeline at destroy.
@@ -215,13 +205,11 @@ protected:
         EXPECT_CALL(*m_gstWrapperMock, gstAppSrcSetCaps(GST_APP_SRC(&m_videoAppSrc), &m_videoCaps));
         EXPECT_CALL(*m_gstWrapperMock, gstCapsUnref(&m_videoCaps));
 
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryMake(StrEq("decodebin"), StrEq("viddecodebin")))
-            .WillOnce(Return(&m_videoDecodebin));
-        EXPECT_CALL(*m_platformBackendMock, createVideoSink(StrEq("videosink"), 0u)).WillOnce(Return(&m_videoSink));
+        // The engine adds its appsrc, then the backend builds the video path (sink == decoderLinkTarget on
+        // the reference path) keyed by the derived video id.
         EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoAppSrc)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoDecodebin)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstBinAdd(GST_BIN(&m_pipeline), &m_videoSink)).WillOnce(Return(TRUE));
-        EXPECT_CALL(*m_gstWrapperMock, gstElementLink(&m_videoAppSrc, &m_videoDecodebin)).WillOnce(Return(TRUE));
+        EXPECT_CALL(*m_platformBackendMock, buildVideoPath(&m_pipeline, &m_videoAppSrc, 0u))
+            .WillOnce(Return(PlatformMediaPath{&m_videoSink, &m_videoDecodebin, &m_videoSink}));
         EXPECT_CALL(*m_glibWrapperMock, gSignalConnect(&m_videoDecodebin, StrEq("pad-added"), _, _)).WillOnce(Return(1));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(&m_videoSink)).WillOnce(Return(&m_videoSink));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_videoSink)); // released by termPipeline at destroy

@@ -307,36 +307,31 @@ void GstGenericPlayer::buildAudioChain(GstElement *source)
         return;
     }
 
-    // Deterministic audio chain. decodebin autoplugs only the decoder, keeping a ~4-element
-    // container without a hand-maintained codec->factory map; the static tail and the
-    // backend-owned sink are built explicitly. No playbin, no auto-sinks.
-    GstElement *decodebin = m_gstWrapper->gstElementFactoryMake("decodebin", "auddecodebin");
-    GstElement *audioConvert = m_gstWrapper->gstElementFactoryMake("audioconvert", "audconvert");
-    GstElement *audioResample = m_gstWrapper->gstElementFactoryMake("audioresample", "audresample");
-    GstElement *audioSink = m_platformBackend->createAudioSink("audiosink");
-
-    if (!decodebin || !audioConvert || !audioResample || !audioSink)
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed to create the explicit audio chain elements");
-        return;
-    }
-
+    // The engine builds no media topology: it owns the appsrc, adds it to the pipeline, and hands it to
+    // the platform backend, which constructs and links its own audio subgraph (reference x86: decodebin
+    // -> audioconvert -> audioresample -> autoaudiosink; a device backend may build a fused compressed-
+    // passthrough path). The engine then does only the generic, non-SoC bookkeeping on the returned
+    // handles. No playbin, no auto-sinks, no engine-owned topology.
     GstBin *pipelineBin = GST_BIN(m_context.pipeline);
     m_gstWrapper->gstBinAdd(pipelineBin, source);
-    m_gstWrapper->gstBinAdd(pipelineBin, decodebin);
-    m_gstWrapper->gstBinAdd(pipelineBin, audioConvert);
-    m_gstWrapper->gstBinAdd(pipelineBin, audioResample);
-    m_gstWrapper->gstBinAdd(pipelineBin, audioSink);
 
-    // Static links: appsrc -> decodebin, and the static tail audioconvert -> audioresample -> sink.
-    // The decoder's src pad is created dynamically by decodebin, so it is linked to audioconvert in
-    // the pad-added handler.
-    m_gstWrapper->gstElementLink(source, decodebin);
-    m_gstWrapper->gstElementLink(audioConvert, audioResample);
-    m_gstWrapper->gstElementLink(audioResample, audioSink);
+    const PlatformMediaPath path{m_platformBackend->buildAudioPath(m_context.pipeline, source)};
+    if (!path.sink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to build the explicit audio path");
+        return;
+    }
+    GstElement *audioSink = path.sink;
 
-    m_explicitAudioConvert = audioConvert;
-    m_glibWrapper->gSignalConnect(decodebin, "pad-added", G_CALLBACK(&GstGenericPlayer::audioDecodebinPadAdded), this);
+    // The decoder's src pad is autoplugged dynamically inside decodebin, so it is linked to the backend's
+    // decoderLinkTarget (audioconvert on the reference path) in the pad-added handler. A fused topology
+    // (decodebin == nullptr) needs no such wiring — the backend owns decode inside its sink.
+    m_explicitAudioConvert = path.decoderLinkTarget;
+    if (path.decodebin)
+    {
+        m_glibWrapper->gSignalConnect(path.decodebin, "pad-added",
+                                      G_CALLBACK(&GstGenericPlayer::audioDecodebinPadAdded), this);
+    }
 
     // The audio sink exists now — unlike the playbin path, where it appeared later via element-setup
     // and SetupElement reacted to it. Store it so getSink and the audio-sink setters reach it, and
@@ -367,12 +362,11 @@ void GstGenericPlayer::buildAudioChain(GstElement *source)
     //     sink stands in as the audio output branch that haltAudioPlayback/resumeAudioPlayback gate. An
     //     extra ref is taken to match the playbin path's ownership; termPipeline releases it.
     m_context.playbackGroup.m_gstPipeline = m_context.pipeline;
-    m_context.playbackGroup.m_curAudioDecodeBin = decodebin;
+    m_context.playbackGroup.m_curAudioDecodeBin = path.decodebin;
     m_gstWrapper->gstObjectRef(audioSink);
     m_context.playbackGroup.m_curAudioPlaysinkBin = audioSink;
 
-    RIALTO_SERVER_LOG_MIL(
-        "Explicit audio chain built (appsrc -> decodebin -> audioconvert -> audioresample -> audiosink)");
+    RIALTO_SERVER_LOG_MIL("Explicit audio chain built via the platform backend audio path");
 }
 
 void GstGenericPlayer::audioDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self)
@@ -403,29 +397,30 @@ void GstGenericPlayer::buildVideoChain(GstElement *source)
         return;
     }
 
-    // Deterministic video chain, mirroring the audio one: decodebin autoplugs only the decoder and the
-    // backend owns the sink (bound to the resource/plane id derived at construction). No playbin, no
-    // auto-sinks.
-    GstElement *decodebin = m_gstWrapper->gstElementFactoryMake("decodebin", "viddecodebin");
-    GstElement *videoSink = m_platformBackend->createVideoSink("videosink", m_context.videoId);
-
-    if (!decodebin || !videoSink)
-    {
-        RIALTO_SERVER_LOG_ERROR("Failed to create the explicit video chain elements");
-        return;
-    }
-
+    // Mirroring the audio path: the engine owns the appsrc, adds it, and hands it to the backend, which
+    // constructs and links its own video subgraph (reference x86: decodebin -> autovideosink; a device
+    // backend builds its own topology and binds the vendor sink to the plane). No playbin, no auto-sinks,
+    // no engine-owned topology.
     GstBin *pipelineBin = GST_BIN(m_context.pipeline);
     m_gstWrapper->gstBinAdd(pipelineBin, source);
-    m_gstWrapper->gstBinAdd(pipelineBin, decodebin);
-    m_gstWrapper->gstBinAdd(pipelineBin, videoSink);
 
-    // Static link appsrc -> decodebin; the decoder's src pad is created dynamically by decodebin, so it
-    // is linked to the video sink in the pad-added handler.
-    m_gstWrapper->gstElementLink(source, decodebin);
+    const PlatformMediaPath path{m_platformBackend->buildVideoPath(m_context.pipeline, source, m_context.videoId)};
+    if (!path.sink)
+    {
+        RIALTO_SERVER_LOG_ERROR("Failed to build the explicit video path");
+        return;
+    }
+    GstElement *videoSink = path.sink;
 
-    m_explicitVideoSink = videoSink;
-    m_glibWrapper->gSignalConnect(decodebin, "pad-added", G_CALLBACK(&GstGenericPlayer::videoDecodebinPadAdded), this);
+    // The decoder's src pad is autoplugged dynamically inside decodebin, so it is linked to the backend's
+    // decoderLinkTarget (the video sink itself on the reference path) in the pad-added handler. A fused
+    // topology (decodebin == nullptr) needs no such wiring.
+    m_explicitVideoSink = path.decoderLinkTarget;
+    if (path.decodebin)
+    {
+        m_glibWrapper->gSignalConnect(path.decodebin, "pad-added",
+                                      G_CALLBACK(&GstGenericPlayer::videoDecodebinPadAdded), this);
+    }
 
     // The video sink exists now — unlike the playbin path, where it appeared later via element-setup
     // and SetupElement reacted to it. Store it (an extra ref, released by termPipeline) so getSink and
@@ -455,7 +450,7 @@ void GstGenericPlayer::buildVideoChain(GstElement *source)
     // once it appears (via SetupVideoParser).
     connectStreamSignals(videoSink, MediaSourceType::VIDEO);
 
-    RIALTO_SERVER_LOG_MIL("Explicit video chain built (appsrc -> decodebin -> videosink)");
+    RIALTO_SERVER_LOG_MIL("Explicit video chain built via the platform backend video path");
 }
 
 void GstGenericPlayer::videoDecodebinPadAdded(GstElement *decodebin, GstPad *pad, GstGenericPlayer *self)
