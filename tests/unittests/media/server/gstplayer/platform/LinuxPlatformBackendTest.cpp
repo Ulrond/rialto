@@ -131,6 +131,27 @@ TEST_F(LinuxPlatformBackendTest, ProcessAudioGapReturnsFalse)
     EXPECT_FALSE(m_sut.processAudioGap(&m_pipeline, 123, 456, 789, true));
 }
 
+/**
+ * The reference backend carries, transitionally, the one SoC element-name the engine core used to know:
+ * rtkv1sink must be skipped during capability probing because instantiating it turns another playback's
+ * video black. The StrictMock guarantees the query makes no wrapper calls.
+ */
+TEST_F(LinuxPlatformBackendTest, ShouldSkipCapabilityProbeForRtkv1sink)
+{
+    EXPECT_TRUE(m_sut.shouldSkipCapabilityProbe("rtkv1sink"));
+}
+
+/**
+ * Every other element is probed normally: the reference backend has no SoC element of its own, so it
+ * skips nothing but the transitional realtek name above.
+ */
+TEST_F(LinuxPlatformBackendTest, ShouldNotSkipCapabilityProbeForOtherElements)
+{
+    EXPECT_FALSE(m_sut.shouldSkipCapabilityProbe("autoaudiosink"));
+    EXPECT_FALSE(m_sut.shouldSkipCapabilityProbe("brcmaudiosink"));
+    EXPECT_FALSE(m_sut.shouldSkipCapabilityProbe(""));
+}
+
 namespace
 {
 firebolt::rialto::server::AudioCodecSwitchContext makeAudioCodecSwitchContext(GstElement *appSrc, GstElement *playsinkBin,

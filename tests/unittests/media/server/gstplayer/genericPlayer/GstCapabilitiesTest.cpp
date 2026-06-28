@@ -183,6 +183,9 @@ public:
             .WillOnce(Return(m_listOfFactories));
         EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(m_listOfFactories)).Times(1);
 
+        // The engine asks the backend whether to skip each factory; the reference backend keeps "fakesrc".
+        EXPECT_CALL(*m_platformBackendMock, shouldSkipCapabilityProbe(_)).WillOnce(Return(false));
+
         // The next calls should ensure that an object is created and then freed
         EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryCreate(m_elementFactory, nullptr)).WillOnce(Return(&m_object));
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_object));
@@ -398,7 +401,10 @@ TEST_F(GstCapabilitiesTest, getSupportedPropertiesForBlacklistedFactories)
         .WillOnce(Return(listOfFactories));
     EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(listOfFactories)).Times(1);
 
-    // element will never be created from blacklisted factory list
+    // the platform backend owns the SoC skip knowledge: it reports rtkv1sink must be skipped
+    EXPECT_CALL(*m_platformBackendMock, shouldSkipCapabilityProbe(StrEq("rtkv1sink"))).WillOnce(Return(true));
+
+    // element will never be created from a skipped factory
     EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryCreate(_, nullptr)).Times(0);
 
     std::vector<std::string> kParamNames{"test-name-123", "test2"};

@@ -58,6 +58,7 @@ public:
     bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap,
                          bool audioAac) override;
     bool switchAudioCodec(const AudioCodecSwitchContext &ctx) override;
+    bool shouldSkipCapabilityProbe(const std::string &elementName) const override;
 
 private:
     // Transitional amlhalasink fork helpers (moved verbatim out of the engine core; they will move

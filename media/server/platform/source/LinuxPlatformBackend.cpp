@@ -637,6 +637,18 @@ bool LinuxPlatformBackend::switchAudioCodec(const AudioCodecSwitchContext &ctx)
     return true;
 }
 
+bool LinuxPlatformBackend::shouldSkipCapabilityProbe(const std::string &elementName) const
+{
+    // transitional -> per-SoC .so : the rtkv1sink element-name check folds into the backend. A
+    // per-SoC (realtek) .so implementing this same ABI answers true for its own problematic element;
+    // the engine core names no SoC. The reference Linux backend has no such element, so the only name
+    // it knows is the transitional realtek one carried here until a per-SoC .so is authored.
+    //
+    // WORKAROUND: instantiating "rtkv1sink" during capability probing turns another playback's video
+    // black, so it must never be created just to read its properties.
+    return elementName == "rtkv1sink";
+}
+
 } // namespace firebolt::rialto::server
 
 /* Loader ABI — resolved by the core's dlopen of this backend's .so. */

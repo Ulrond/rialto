@@ -43,6 +43,7 @@ public:
     void audioFade(double, uint32_t, firebolt::rialto::EaseType) override {}
     bool processAudioGap(GstElement *, int64_t, uint32_t, int64_t, bool) override { return false; }
     bool switchAudioCodec(const firebolt::rialto::server::AudioCodecSwitchContext &) override { return true; }
+    bool shouldSkipCapabilityProbe(const std::string &) const override { return false; }
 };
 } // namespace
 
