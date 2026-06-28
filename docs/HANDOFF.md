@@ -5,15 +5,60 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-28 session 6 (**#12 clean parts MERGED to master `bdec8837`, pushed `origin/Ulrond`; #12 stays
-OPEN** — rtkv1sink capability-probe skip moved behind `IPlatformBackend::shouldSkipCapabilityProbe` (**ABI v6**) + the
-isLive "Broadcom decoder" comment relabelled; the svppay/svpEnabled secure path is **held** for Stage-B fused-secure-decode,
-so #12 is deliberately not closed. servergstplayer 625/625, servermain 471/471, RialtoServerComponentTests 77/77. Folded
-the "registry-probe → backend-declared capabilities" redesign into #13). Prior: #9 MERGED (`1fca4bf7`, closed — getSink
-fallback + component-suite migration); Task 4 MERGED (`573a9b53`, #11 closed, ABI v5); per-SoC backends are PEERS ("Linux
-is just another SoC") behind a static versioned ABI; conformance suite specced; Stage A zero-copy scoped (#10, parked).
-NEXT = **#13** (peer per-SoC backend split + packaging; now also carries the capability-discovery redesign) → also #2
-native `IMediaSession` (needs LLD) / #7 conformance suite; #12 secure-path tail lands with Stage B._
+_Last updated: 2026-06-28 session 6 (**#14 MERGED to master `78767829`, pushed `origin/Ulrond`, #14 CLOSED** — engine core
+now builds NO pipeline topology: `IPlatformBackend::buildAudioPath`/`buildVideoPath` (**ABI v7**) let the backend construct
++ link its own subgraph; `LinuxPlatformBackend` owns the x86 topology as a PEER ("Linux is just another SoC"), the same seam
+an embedded backend uses for `appsrc → vendor-sink`. Fixes the embedded-topology risk (desktop `decodebin→audioconvert→
+audioresample→autoaudiosink` is wrong for compressed-passthrough HW sinks). servergstplayer 626/626, servermain 471/471,
+RialtoServerComponentTests 77/77. Prereq to #13. Earlier this session: **#12 clean parts MERGED `bdec8837`, #12 OPEN** —
+rtkv1sink probe-skip behind `shouldSkipCapabilityProbe` (ABI v6) + isLive relabel; svppay/svpEnabled HELD. R2 finding:
+svppay is now **dead code** (orphaned rialtosrc path, only `AppSrcTest` calls it), svpEnabled is already a neutral seam
+field — secure-path is not a live leak, just a dead-code cleanup. Prior: #9 MERGED (`1fca4bf7`); Task 4 MERGED (`573a9b53`,
+ABI v5). NEXT = **#13** (peer per-SoC backend split + packaging; topology seam now in place; also carries the
+capability-discovery redesign) → #2 native `IMediaSession` (needs LLD) / #7 conformance suite; #12 secure-path tail + the
+dead svppay cleanup land later._
+
+---
+
+## Session update — 2026-06-28 (session 6 cont.) — #14 DONE (engine core owns no topology, ABI v7)
+
+**Issue [#14](https://github.com/Ulrond/rialto/issues/14) DONE + MERGED + CLOSED.** Branch
+`feature/14-backend-owns-topology-abi-v7` (off master, one commit `5314ef3a`) merged `--no-ff` → master **`78767829`**,
+pushed to `origin/Ulrond`. servergstplayer **626/626**, servermain **471/471**, RialtoServerComponentTests **77/77**.
+
+**Why (the architectural catch this session, user-driven).** Playbin removal left the explicit pipeline *topology*
+hard-coded in the engine core (`GstGenericPlayer::buildAudioChain` built `appsrc → decodebin → audioconvert →
+audioresample → sink` and asked the backend only for the leaf sink). That graph is **desktop-shaped and wrong for an
+embedded SoC**: HW audio sinks (amlhalasink/brcmaudiosink/MS12) take **compressed passthrough** (E-AC3/AC4/Atmos) and
+decode+render in the SoC — SW audioconvert/audioresample would break passthrough/Atmos. So the reference topology sat
+*above* the seam: Linux was privileged, not "just another SoC", and an embedded backend would force a core change
+(breaks isolation) or get the wrong graph (breaks determinism). The goal of the whole exercise — **upper layers the
+same/deterministic, lower-layer SoC changes isolated** — needs topology *behind* the seam.
+
+**What changed (ABI v7).** `IPlatformBackend::buildAudioPath(pipeline, source)` / `buildVideoPath(pipeline, source,
+videoId)` return `PlatformMediaPath{sink, decodebin?, decoderLinkTarget?}`. The backend constructs, adds, and links its
+own subgraph between the engine's appsrc and the pipeline; the engine creates and links **no** media element and does only
+generic, non-SoC bookkeeping (connect decodebin `pad-added`, schedule `SetupAudioDecoder`/`SetupVideoParser`, apply pending
+sink props, populate the playback group). `decodebin == nullptr` expresses a **fused-decode** topology (`appsrc →
+vendor-sink`) — the engine then does no decoder wiring; the backend owns it. `LinuxPlatformBackend` owns the reference x86
+topology as a peer; `createVideoSink` became a backend-private helper of `buildVideoPath`; `createAudioSink` stays for the
+web-audio leaf path. Decision: **Option A** (backend owns topology; *generic* decoder handling stays in the core — keeping
+it out of the core would duplicate it across every per-SoC backend, the opposite of the no-debt goal). Component suite
+passed with **zero harness changes** — proof the core→backend relocation is behaviour-preserving.
+
+**Layering nailed down (folded into the LLD v0.7 + #13).** Three seams, kept distinct: (1) app↔engine (northbound MSE +
+native API, agnostic); (2) engine↔platform = `IPlatformBackend` (GStreamer-coupled *on purpose*; owns element creation +
+topology + secure path); (3) the engine itself (GStreamer; PipeWire only a candidate). **AIDL/RDK-HAL is an implementation
+*behind* seam 2** (the per-SoC `.so` is/wraps the Binder client), **not** a peer of it. **PipeWire is a seam-3 (engine)
+swap** that would *re-cut* seam 2 — it does not slot behind `IPlatformBackend`. The engine-neutral platform interface those
+three would realize is deliberately **not built now** (GStreamer is the only confirmed engine); discipline = keep seam-2
+*semantics* engine-neutral even while its *types* are GStreamer's.
+
+**Risk register (correctness) — current standing:** R1 engine-core-owns-topology → **FIXED (#14)**. R2 secure-path → **not a
+live leak** (svppay dead, svpEnabled neutral) — dead-code cleanup later. R3 registry-probe caps → #13. R4 LinuxPlatformBackend
+is still a privileged container (all vendors, one binary) → **#13, the main remaining work**. R5/R6 no real per-SoC backend
+/ no HW conformance → HW-gated (#7). R8 ABI churn → the ABI is now topology-complete (v7); the secure path is the last
+optional addition before #13 authors backends.
 
 ---
 
