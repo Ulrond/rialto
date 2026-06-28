@@ -16,7 +16,44 @@ svppay is now **dead code** (orphaned rialtosrc path, only `AppSrcTest` calls it
 field — secure-path is not a live leak, just a dead-code cleanup. Prior: #9 MERGED (`1fca4bf7`); Task 4 MERGED (`573a9b53`,
 ABI v5). NEXT = **#13** (peer per-SoC backend split + packaging; topology seam now in place; also carries the
 capability-discovery redesign) → #2 native `IMediaSession` (needs LLD) / #7 conformance suite; #12 secure-path tail + the
-dead svppay cleanup land later._
+dead svppay cleanup land later. **master tip = `0e5a85b4` (in sync with `origin/Ulrond`).** Also this session: the
+**LLD was recast to a destination design spec (v0.8) + a manager HLA decision brief was written** — both ceres drafts
+awaiting review→sync (see "LLD + HLA design docs" below)._
+
+---
+
+## Session update — 2026-06-28 (session 6 cont.) — LLD recast to a design spec + manager HLA decision brief
+
+**Two ceres-draft docs in `external/` (gitignored, NOT synced to hpz4/Confluence yet):**
+
+- **`external/LLD-rialto-transformation.md`** — copied from hpz4 (`Netflix-NRDP9/docs/output/rialto/`) and **recast v0.7 → v0.8 as a
+  destination DESIGN SPEC** (was a feasibility "Analysis"). Changes: retitled "Rialto Transformation — SoC-Isolation Seam &
+  Player Model (Design)"; added **§0 architecture-at-a-glance** (current/target/two-seams Mermaid); merged the API inventory
+  into one **player-model contract** (§2, present/extend/new); **§3** GStreamer normalisation + explicit-pipeline construction
+  diagram; **§3.1** versioned ABI + dlopen-boundary diagram; **§3.2** two seams; added the **"minimal change vs restructure"
+  rationale** (pros/cons/risk, no "rejected" verdict); **removed** the planning sections (Difficulty / Work Breakdown /
+  Is-This-Hard / Future) → they belong in the Roadmap doc (See Also); version table moved to a bottom footer. **5 Mermaid
+  diagrams, all validated rendering** via `npx -y @mermaid-js/mermaid-cli`. Voice rule enforced: **destination, not journey**
+  (no issue numbers, no "landed", no line-counts); **PipeWire dropped** from the architecture discussion (kept only as the
+  mission-level "not confirmed" caveat).
+- **`external/HLA-rialto-transformation.md`** — NEW **manager / Program 2-minute decision brief** (the tier above the LLD).
+  Two pictures: **minimal change vs restructure** (where the SoC code lives — shared core vs behind the seam) and the
+  **blast radius** (a Broadcom fix fans out to all platforms + re-test, vs one `.so`). Plus the two-options table, the
+  grounded control section, and a 3-point ask. Labels are consistent: **minimal change** vs **restructure** (recommended).
+
+**Grounding + devil's-advocate discipline (important — do not re-introduce overclaims):** every technical claim must be
+grounded in the **code** or the **experiments evidence report** (`experiments/playbin-vs-explicit/RESULTS.md`). Adversarial
+review corrected two overclaims that a reviewer (Doug) would break: (1) **playbin CAN pin** the decoder/plane — via
+`autoplug-select` / `video-sink` handlers — so the argument is **"where the pinning code lives"** (shared core vs behind the
+seam), NOT "playbin can't"; (2) the **as-built seam pins only the PLANE** (`createVideoSink(videoId)`) — the **decoder and
+secure path are NOT yet pinned** (`decodebin` autoplugs the decoder; secure = the held `svppay` work) — they are
+seam-*enabled* next steps, state them as such. Grounded facts from RESULTS.md: rank-based decoder selection; default-playbin
+dual-decode collision on the x86 rig; lazy-construction deadlock; ~5× element drop (36→7) but **startup/memory similar** (wins
+are determinism / reconfigure / held-resume, not speed).
+
+**Open doc items (your call):** sync both docs to the hpz4 canonical → Confluence (export Mermaid → SVG/PNG + `corp-sync`);
+rename the LLD **Publish Status** target string (still "LLD: Rialto Transformation Analysis"); retire the now-superseded
+`external/rialto/docs/ARCHITECTURE-rialto-overview.md` (+ its committed `diagram-NN` images) → reduce to a pointer at the LLD §0.
 
 ---
 
@@ -772,6 +809,10 @@ against the injectable backend (#6) — the same move that gives the suite its o
 ## Local working docs (in `external/`, gitignored — NOT in any repo)
 
 - `external/rialto/docs/HANDOFF.md` — this file. (Working docs were moved under `docs/`.)
+- `external/LLD-rialto-transformation.md` — the **design spec (v0.8)**, copied from hpz4 + recast this session
+  (destination voice, §0 diagrams, merged contract, minimal-vs-restructure rationale). Ceres draft; not synced.
+- `external/HLA-rialto-transformation.md` — the **manager/Program decision brief** (2-min; minimal-vs-restructure +
+  blast-radius pictures; grounded control section). Ceres draft; not synced. The tier above the LLD.
 - `external/rialto/docs/PLAYBIN-REMOVAL-PLAN.md` — the 5-stage plan; stage-3 sub-commits + decodebin decision.
 - `external/rialto/docs/RIALTO-INTEGRATION-TEST-PLAN.md` — versioned-conformance test plan (ut-core + raft;
   pinned-harness + ABI-versioned-contract axes; no-conversion gtest ingest; coverage matrix).
