@@ -278,8 +278,11 @@ struct GenericPlayerContext
     std::shared_ptr<IFlushOnPrerollController> flushOnPrerollController{std::make_shared<FlushOnPrerollController>()};
 
     /**
-     * @brief Flag used to check if the stream is live
-     *        This is a workaround for Broadcom decoder issue with audio cuts during playback rate change.
+     * @brief Whether the current stream is live.
+     *
+     * A neutral stream attribute supplied by the client at session creation. Gates live-only playback
+     * handling such as enabling decoder rate correction (some decoders cut audio on a playback-rate
+     * change otherwise); any platform-specific behaviour lives behind IPlatformBackend.
      */
     bool isLive{false};
 
