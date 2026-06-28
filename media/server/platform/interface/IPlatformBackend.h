@@ -51,9 +51,10 @@ namespace firebolt::rialto::server
  * on top of v2's sink creation; v4 grows it further with the live-graph audio ops
  * (isAudioFadeSupported / audioFade / processAudioGap), moving the last SoC audio
  * knowledge out of the engine core; v5 folds the mid-stream audio codec switch
- * (switchAudioCodec) behind the seam, removing the last SoC name from the engine
- * core. New methods are appended; existing ones are frozen, so a v2 backend stays
- * valid against v2 cases.
+ * (switchAudioCodec) behind the seam; v6 adds the capability-probe skip
+ * (shouldSkipCapabilityProbe), moving the last SoC element-name check (rtkv1sink)
+ * out of the engine core. New methods are appended; existing ones are frozen, so a
+ * v2 backend stays valid against v2 cases.
  *
  * The backend is loaded as a separate `.so` via the extern "C" entrypoints below
  * and version-checked, so a vendor layer can be upgraded without rebuilding or
@@ -65,7 +66,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 5;
+constexpr uint32_t kPlatformBackendAbiVersion = 6;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -229,6 +230,21 @@ public:
      * @retval true if the switch succeeded, false otherwise.
      */
     virtual bool switchAudioCodec(const AudioCodecSwitchContext &ctx) = 0;
+
+    /**
+     * @brief Whether a sink/decoder element must be skipped during capability probing (ABI v6).
+     *
+     * GstCapabilities::getSupportedProperties instantiates each candidate element factory to read its
+     * GObject properties. Some platforms expose an element that must not be instantiated during this
+     * probe because doing so disrupts a concurrent playback (e.g. realtek's rtkv1sink turns another
+     * playback's video black). A SoC capability query: device backends answer true for their
+     * problematic element(s); the Linux reference backend has no such element and returns false. The
+     * engine names no SoC; it asks the backend per element factory.
+     *
+     * @param[in] elementName : The GStreamer element-factory name about to be instantiated.
+     * @retval true if the element must be skipped, false to probe it.
+     */
+    virtual bool shouldSkipCapabilityProbe(const std::string &elementName) const = 0;
 
 protected:
     IPlatformBackend() = default;
