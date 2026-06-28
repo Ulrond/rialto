@@ -23,6 +23,7 @@
 #include "IPlatformBackend.h"
 #include <gmock/gmock.h>
 #include <string>
+#include <vector>
 
 namespace firebolt::rialto::server
 {
@@ -42,7 +43,8 @@ public:
                 (GstElement * pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap, bool audioAac),
                 (override));
     MOCK_METHOD(bool, switchAudioCodec, (const AudioCodecSwitchContext &ctx), (override));
-    MOCK_METHOD(bool, shouldSkipCapabilityProbe, (const std::string &elementName), (const, override));
+    MOCK_METHOD(std::vector<std::string>, getSupportedProperties,
+                (MediaSourceType mediaType, const std::vector<std::string> &propertyNames), (const, override));
 };
 } // namespace firebolt::rialto::server
 

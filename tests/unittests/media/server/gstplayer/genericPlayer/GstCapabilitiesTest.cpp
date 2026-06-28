@@ -44,12 +44,6 @@ using ::testing::StrEq;
 using ::testing::StrictMock;
 using ::testing::UnorderedElementsAre;
 
-namespace
-{
-const GstElementFactoryListType kExpectedFactoryListType{
-    GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_PARSER |
-    GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO};
-}; // namespace
 template <typename T> class GListWrapper
 {
 public:
@@ -92,8 +86,6 @@ public:
     {
         IFactoryAccessor::instance().gstWrapperFactory() = m_gstWrapperFactoryMock;
         IFactoryAccessor::instance().glibWrapperFactory() = m_glibWrapperFactoryMock;
-        memset(&m_object, 0x00, sizeof(m_object));
-        m_elementFactory = gst_element_factory_find("fakesrc");
     }
 
     ~GstCapabilitiesTest() override
@@ -174,23 +166,6 @@ public:
         cv.wait_for(lock, std::chrono::milliseconds{200}, [&]() { return initialised; });
     }
 
-    void expectGetSupportedPropertiesCommon()
-    {
-        createSutWithNoDecoderAndNoSink();
-
-        m_listOfFactories = g_list_append(m_listOfFactories, m_elementFactory);
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListGetElements(kExpectedFactoryListType, GST_RANK_NONE))
-            .WillOnce(Return(m_listOfFactories));
-        EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(m_listOfFactories)).Times(1);
-
-        // The engine asks the backend whether to skip each factory; the reference backend keeps "fakesrc".
-        EXPECT_CALL(*m_platformBackendMock, shouldSkipCapabilityProbe(_)).WillOnce(Return(false));
-
-        // The next calls should ensure that an object is created and then freed
-        EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryCreate(m_elementFactory, nullptr)).WillOnce(Return(&m_object));
-        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_object));
-    }
-
     std::shared_ptr<StrictMock<GstWrapperMock>> m_gstWrapperMock{std::make_shared<StrictMock<GstWrapperMock>>()};
     std::shared_ptr<StrictMock<GstWrapperFactoryMock>> m_gstWrapperFactoryMock{
         std::make_shared<StrictMock<GstWrapperFactoryMock>>()};
@@ -237,11 +212,6 @@ public:
     GstCaps m_parserTemplateCapsSrc;
     GListWrapper<GstElementFactory *> m_parserFactoryList{m_parserFactory};
     GListWrapper<GstStaticPadTemplate *> m_parserPadTemplatesList{&m_parserPadTemplateSink, &m_parserPadTemplateSrc};
-
-    // variables used to test getSupportedProperties
-    GstElement m_object;
-    GList *m_listOfFactories{nullptr};
-    GstElementFactory *m_elementFactory;
 };
 
 /**
@@ -364,107 +334,30 @@ TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OnlyOneDecoderWithTwoSinkPadsA
     EXPECT_FALSE(m_sut->isMimeTypeSupported("video/h264"));
 }
 
-TEST_F(GstCapabilitiesTest, getSupportedPropertiesWithPropertiesSupported)
-{
-    expectGetSupportedPropertiesCommon();
-
-    const int kNumParamsSupportedByServer{2};
-    GParamSpec dummySinkParams[kNumParamsSupportedByServer];
-    dummySinkParams[0].name = "test-name-123";
-    dummySinkParams[1].name = "test2";
-    GParamSpec *dummySinkParamsPtr[] = {&dummySinkParams[0], &dummySinkParams[1]};
-
-    EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
-        .WillOnce(DoAll(SetArgPointee<1>(kNumParamsSupportedByServer), Return(dummySinkParamsPtr)));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(dummySinkParamsPtr)).Times(1);
-
-    std::vector<std::string> kParamNames{"test-name-123", "test2"};
-    std::vector<std::string> supportedProperties{m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames)};
-
-    EXPECT_EQ(supportedProperties, kParamNames);
-
-    gst_plugin_feature_list_free(m_listOfFactories);
-    m_listOfFactories = nullptr;
-}
-
-TEST_F(GstCapabilitiesTest, getSupportedPropertiesForBlacklistedFactories)
+// The platform backend is the capability authority (ABI v8): GstCapabilities delegates the query
+// wholesale and returns the backend's answer. The introspection mechanism is exercised by the
+// reference backend's own tests (LinuxPlatformBackendTest).
+TEST_F(GstCapabilitiesTest, getSupportedPropertiesDelegatesToBackend)
 {
     createSutWithNoDecoderAndNoSink();
 
-    // the code needs a real factory, so take the factory that exist on system and change its name
-    GstElementFactory *elementFactory = gst_element_factory_find("fakesrc");
-    GST_OBJECT(elementFactory)->name = "rtkv1sink";
+    const std::vector<std::string> kParamNames{"test-name-123", "test2", "audio-fade"};
+    const std::vector<std::string> kSupported{"test-name-123", "audio-fade"};
+    EXPECT_CALL(*m_platformBackendMock, getSupportedProperties(MediaSourceType::VIDEO, kParamNames))
+        .WillOnce(Return(kSupported));
 
-    GList *listOfFactories = nullptr;
-    listOfFactories = g_list_append(listOfFactories, elementFactory);
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListGetElements(kExpectedFactoryListType, GST_RANK_NONE))
-        .WillOnce(Return(listOfFactories));
-    EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(listOfFactories)).Times(1);
-
-    // the platform backend owns the SoC skip knowledge: it reports rtkv1sink must be skipped
-    EXPECT_CALL(*m_platformBackendMock, shouldSkipCapabilityProbe(StrEq("rtkv1sink"))).WillOnce(Return(true));
-
-    // element will never be created from a skipped factory
-    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryCreate(_, nullptr)).Times(0);
-
-    std::vector<std::string> kParamNames{"test-name-123", "test2"};
-    std::vector<std::string> supportedProperties{m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames)};
-
-    EXPECT_TRUE(supportedProperties.empty());
-
-    gst_plugin_feature_list_free(listOfFactories);
-    listOfFactories = nullptr;
-
-    // it changes name of global element factory, so it should be restored
-    GST_OBJECT(elementFactory)->name = "fakesrc";
+    EXPECT_EQ(m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames), kSupported);
 }
 
-TEST_F(GstCapabilitiesTest, getSupportedPropertiesWithAudioFadeProperty)
+TEST_F(GstCapabilitiesTest, getSupportedPropertiesReturnsBackendEmptyResult)
 {
-    expectGetSupportedPropertiesCommon();
+    createSutWithNoDecoderAndNoSink();
 
-    const int kNumParamsSupportedByServer{2};
-    GParamSpec dummySinkParams[kNumParamsSupportedByServer];
-    dummySinkParams[0].name = "test-name-123";
-    dummySinkParams[1].name = "test2";
-    GParamSpec *dummySinkParamsPtr[] = {&dummySinkParams[0], &dummySinkParams[1]};
+    const std::vector<std::string> kParamNames{"test-name-123", "test2"};
+    EXPECT_CALL(*m_platformBackendMock, getSupportedProperties(MediaSourceType::AUDIO, kParamNames))
+        .WillOnce(Return(std::vector<std::string>{}));
 
-    EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
-        .WillOnce(DoAll(SetArgPointee<1>(kNumParamsSupportedByServer), Return(dummySinkParamsPtr)));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(dummySinkParamsPtr)).Times(1);
-    EXPECT_CALL(*m_platformBackendMock, isAudioFadeSupported()).WillOnce(Return(true));
-
-    std::vector<std::string> kParamNames{"test-name-123", "test2", "audio-fade"};
-    std::vector<std::string> supportedProperties{m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames)};
-
-    EXPECT_EQ(supportedProperties, kParamNames);
-
-    gst_plugin_feature_list_free(m_listOfFactories);
-    m_listOfFactories = nullptr;
-}
-
-TEST_F(GstCapabilitiesTest, getSupportedPropertiesWithNoPropertiesSupported)
-{
-    expectGetSupportedPropertiesCommon();
-
-    const int kNumParamsSupportedByServer{2};
-    GParamSpec dummySinkParams[kNumParamsSupportedByServer];
-    dummySinkParams[0].name = "test3";
-    dummySinkParams[1].name = "test4";
-    GParamSpec *dummySinkParamsPtr[] = {&dummySinkParams[0], &dummySinkParams[1]};
-
-    EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
-        .WillRepeatedly(DoAll(SetArgPointee<1>(kNumParamsSupportedByServer), Return(dummySinkParamsPtr)));
-    EXPECT_CALL(*m_glibWrapperMock, gFree(dummySinkParamsPtr)).Times(1);
-    EXPECT_CALL(*m_platformBackendMock, isAudioFadeSupported()).WillOnce(Return(false));
-
-    std::vector<std::string> kParamNames{"test-name-123", "test2", "audio-fade"};
-    std::vector<std::string> supportedProperties{m_sut->getSupportedProperties(MediaSourceType::VIDEO, kParamNames)};
-
-    EXPECT_EQ(supportedProperties, std::vector<std::string>{});
-
-    gst_plugin_feature_list_free(m_listOfFactories);
-    m_listOfFactories = nullptr;
+    EXPECT_TRUE(m_sut->getSupportedProperties(MediaSourceType::AUDIO, kParamNames).empty());
 }
 
 TEST_F(GstCapabilitiesTest, CreateGstCapabilities_OnlyOneDecoderWithTwoPadsWithTheSameCaps)

@@ -24,6 +24,8 @@
 #include <gst/gst.h>
 #include <gtest/gtest.h>
 #include <memory>
+#include <string>
+#include <vector>
 
 using namespace firebolt::rialto::server;
 using namespace firebolt::rialto::wrappers;
@@ -187,24 +189,52 @@ TEST_F(LinuxPlatformBackendTest, ProcessAudioGapReturnsFalse)
 }
 
 /**
- * The reference backend carries, transitionally, the one SoC element-name the engine core used to know:
- * rtkv1sink must be skipped during capability probing because instantiating it turns another playback's
- * video black. The StrictMock guarantees the query makes no wrapper calls.
+ * The reference backend is the capability authority (ABI v8): it discovers its supported properties by
+ * introspecting the installed GStreamer elements it can use. It names no SoC and never asks the core to
+ * instantiate a vendor sink, so there is no capability-probe skip hook. Here every requested property is
+ * exposed by the (single) element, so all are reported.
  */
-TEST_F(LinuxPlatformBackendTest, ShouldSkipCapabilityProbeForRtkv1sink)
+TEST_F(LinuxPlatformBackendTest, GetSupportedPropertiesReportsPropertiesFoundByIntrospection)
 {
-    EXPECT_TRUE(m_sut.shouldSkipCapabilityProbe("rtkv1sink"));
+    // A real factory is needed because GST_ELEMENT_FACTORY casts the list data with a runtime type check.
+    GstElementFactory *factory = gst_element_factory_find("fakesrc");
+    ASSERT_TRUE(factory);
+    GList *factories = g_list_append(nullptr, factory);
+
+    GstElement element{};
+    GParamSpec param0{};
+    GParamSpec param1{};
+    param0.name = "test-name-123";
+    param1.name = "test2";
+    GParamSpec *params[] = {&param0, &param1};
+    const guint kNumParams{2};
+
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListGetElements(_, GST_RANK_NONE)).WillOnce(Return(factories));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryCreate(factory, nullptr)).WillOnce(Return(&element));
+    EXPECT_CALL(*m_glibWrapperMock, gObjectClassListProperties(_, _))
+        .WillOnce(DoAll(SetArgPointee<1>(kNumParams), Return(params)));
+    EXPECT_CALL(*m_glibWrapperMock, gFree(params)).Times(1);
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&element)).Times(1);
+    EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(factories)).Times(1);
+
+    const std::vector<std::string> kParamNames{"test-name-123", "test2"};
+    EXPECT_EQ(m_sut.getSupportedProperties(firebolt::rialto::MediaSourceType::VIDEO, kParamNames), kParamNames);
+
+    gst_plugin_feature_list_free(factories);
 }
 
 /**
- * Every other element is probed normally: the reference backend has no SoC element of its own, so it
- * skips nothing but the transitional realtek name above.
+ * With no installed element exposing the requested properties (empty factory list) the reference reports
+ * nothing. audio-fade in particular is not reported: the reference has no platform audio path that eases
+ * volume (isAudioFadeSupported() is false), so the StrictMock proves no further wrapper calls occur.
  */
-TEST_F(LinuxPlatformBackendTest, ShouldNotSkipCapabilityProbeForOtherElements)
+TEST_F(LinuxPlatformBackendTest, GetSupportedPropertiesReturnsEmptyWhenNoElementsAndNoPlatformFade)
 {
-    EXPECT_FALSE(m_sut.shouldSkipCapabilityProbe("autoaudiosink"));
-    EXPECT_FALSE(m_sut.shouldSkipCapabilityProbe("brcmaudiosink"));
-    EXPECT_FALSE(m_sut.shouldSkipCapabilityProbe(""));
+    EXPECT_CALL(*m_gstWrapperMock, gstElementFactoryListGetElements(_, GST_RANK_NONE)).WillOnce(Return(nullptr));
+    EXPECT_CALL(*m_gstWrapperMock, gstPluginFeatureListFree(nullptr)).Times(1);
+
+    const std::vector<std::string> kParamNames{"test-name-123", "audio-fade"};
+    EXPECT_TRUE(m_sut.getSupportedProperties(firebolt::rialto::MediaSourceType::AUDIO, kParamNames).empty());
 }
 
 namespace

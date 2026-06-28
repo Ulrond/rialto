@@ -26,6 +26,7 @@
 #include "IRdkGstreamerUtilsWrapper.h"
 #include <memory>
 #include <string>
+#include <vector>
 
 typedef struct _GstCaps GstCaps;
 
@@ -59,7 +60,8 @@ public:
     bool processAudioGap(GstElement *pipeline, int64_t position, uint32_t duration, int64_t discontinuityGap,
                          bool audioAac) override;
     bool switchAudioCodec(const AudioCodecSwitchContext &ctx) override;
-    bool shouldSkipCapabilityProbe(const std::string &elementName) const override;
+    std::vector<std::string> getSupportedProperties(MediaSourceType mediaType,
+                                                    const std::vector<std::string> &propertyNames) const override;
 
 private:
     // Reference video leaf-sink helper (autovideosink, plane-agnostic). Used internally by

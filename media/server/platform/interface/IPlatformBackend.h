@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 typedef struct _GstElement GstElement;
 
@@ -59,6 +60,12 @@ namespace firebolt::rialto::server
  * the pipeline. "Linux is just another SoC": the reference backend owns the x86
  * topology (decodebin -> audioconvert -> audioresample -> autoaudiosink) the same way
  * a device backend owns its own (e.g. appsrc -> vendor-sink for a fused HW path).
+ * v8 makes the backend the capability authority (getSupportedProperties): the backend
+ * builds the pipeline, so it answers the northbound "does this platform support
+ * property X?" query directly instead of the engine scanning the GStreamer registry
+ * and instantiating each factory. This retires the playbin-era registry scan from the
+ * core and, with it, the v6 capability-probe skip (a backend answers for its own
+ * elements and never asks the core to instantiate a vendor sink).
  * New methods are appended; existing ones are frozen. (createVideoSink became a
  * reference-backend internal helper of buildVideoPath; createAudioSink stays for the
  * web-audio leaf-sink path.)
@@ -73,7 +80,7 @@ namespace firebolt::rialto::server
  * engine-neutral generalisation is Phase 2 (see the Graphics Player / PipeWire
  * core work).
  */
-constexpr uint32_t kPlatformBackendAbiVersion = 7;
+constexpr uint32_t kPlatformBackendAbiVersion = 8;
 
 /**
  * @brief Services the core hands the backend at creation, so it can build
@@ -285,19 +292,21 @@ public:
     virtual bool switchAudioCodec(const AudioCodecSwitchContext &ctx) = 0;
 
     /**
-     * @brief Whether a sink/decoder element must be skipped during capability probing (ABI v6).
+     * @brief Report which of the queried properties this platform supports for a media type (ABI v8).
      *
-     * GstCapabilities::getSupportedProperties instantiates each candidate element factory to read its
-     * GObject properties. Some platforms expose an element that must not be instantiated during this
-     * probe because doing so disrupts a concurrent playback (e.g. realtek's rtkv1sink turns another
-     * playback's video black). A SoC capability query: device backends answer true for their
-     * problematic element(s); the Linux reference backend has no such element and returns false. The
-     * engine names no SoC; it asks the backend per element factory.
+     * Answers the northbound MSE/native "does this platform support property X?" query. The backend
+     * builds the explicit pipeline, so it is the capability authority: it reports support directly
+     * rather than the engine scanning the GStreamer registry and instantiating each factory (a
+     * playbin-era inference). The reference backend introspects the elements it owns; a device backend
+     * answers for its own elements and never asks the core to instantiate a vendor sink — which is why
+     * no capability-probe skip hook is needed.
      *
-     * @param[in] elementName : The GStreamer element-factory name about to be instantiated.
-     * @retval true if the element must be skipped, false to probe it.
+     * @param[in] mediaType      : The media source type the query is scoped to (AUDIO/VIDEO/SUBTITLE).
+     * @param[in] propertyNames  : The property names the caller is asking about.
+     * @retval the subset of propertyNames this platform supports for mediaType.
      */
-    virtual bool shouldSkipCapabilityProbe(const std::string &elementName) const = 0;
+    virtual std::vector<std::string> getSupportedProperties(MediaSourceType mediaType,
+                                                            const std::vector<std::string> &propertyNames) const = 0;
 
 protected:
     IPlatformBackend() = default;
