@@ -56,6 +56,13 @@ void GstGenericPlayerTestCommon::gstPlayerWillBeDestroyed()
     EXPECT_CALL(*m_gstWrapperMock, gstPipelineGetBus(GST_PIPELINE(&m_pipeline))).WillOnce(Return(&m_bus));
     EXPECT_CALL(*m_gstWrapperMock, gstBusSetSyncHandler(&m_bus, nullptr, nullptr, nullptr));
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_bus));
+    // termPipeline releases each backend sink stored in the context (see expectGetAVSink). Declared here,
+    // after the test body, so this absorbs the destroy-time unref while the getSink caller's own unref is
+    // matched by the consumer's expectation.
+    for (GstElement *sink : m_storedSinks)
+    {
+        EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(sink)).RetiresOnSaturation();
+    }
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_pipeline));
 }
 
@@ -134,25 +141,29 @@ void GstGenericPlayerTestCommon::expectGetVideoParser(GstElement *element)
 
 void GstGenericPlayerTestCommon::expectGetAVSink(const std::string &sinkName, GstElement *elementObj)
 {
-    // getSink returns the property-read sink directly: there is no auto-sink unwrapping (gTypeName).
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(sinkName.c_str()), _))
-        .WillOnce(Invoke(
-            [elementObj](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = elementObj;
-            }));
+    // getSink returns the backend sink stored in the context (ref'd; the caller unrefs). Store it in the
+    // matching context field so getSink finds it — there is no playbin property to read and no auto-sink
+    // to unwrap.
+    applyToContext(
+        [&sinkName, elementObj](GenericPlayerContext &context)
+        {
+            if (sinkName == kAudioSinkStr)
+                context.audioSink = elementObj;
+            else if (sinkName == kVideoSinkStr)
+                context.videoSink = elementObj;
+            else
+                context.subtitleSink = elementObj;
+        });
+    EXPECT_CALL(*m_gstWrapperMock, gstObjectRef(elementObj)).WillOnce(Return(elementObj));
+    // The stored sink is released by termPipeline when the player is destroyed. That destroy-time unref is
+    // expected in gstPlayerWillBeDestroyed (declared last, so it absorbs the destroy call rather than the
+    // getSink caller's own unref, which the consumer expects during the test body).
+    m_storedSinks.push_back(elementObj);
 }
 
 void GstGenericPlayerTestCommon::expectGetSink(const std::string &sinkName, GstElement *elementObj)
 {
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(sinkName.c_str()), _))
-        .WillOnce(Invoke(
-            [elementObj](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = elementObj;
-            }));
+    expectGetAVSink(sinkName, elementObj);
 }
 
 void GstGenericPlayerTestCommon::expectNoDecoder()

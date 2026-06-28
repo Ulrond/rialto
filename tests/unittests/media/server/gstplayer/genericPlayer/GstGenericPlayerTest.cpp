@@ -69,6 +69,8 @@ protected:
         m_sut.reset();
     }
 
+    void applyToContext(const std::function<void(GenericPlayerContext &)> &fun) override { getContext(fun); }
+
     void getContext(const std::function<void(GenericPlayerContext &)> &fun)
     {
         // Call any method to modify GstGenericPlayer context
@@ -377,7 +379,6 @@ TEST_F(GstGenericPlayerTest, shouldFailToGetImmediateOutputInPlayingStateIfStubN
     setPipelineState(GST_STATE_PLAYING);
 
     // Fail to get sink which should cause the getImmediateOutput() call to return false
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _)).Times(1);
 
     bool immediateOutputState;
     EXPECT_FALSE(m_sut->getImmediateOutput(MediaSourceType::AUDIO, immediateOutputState));
@@ -441,7 +442,6 @@ TEST_F(GstGenericPlayerTest, shouldFailToGetStatsInPlayingStateIfStubNull)
     setPipelineState(GST_STATE_PLAYING);
 
     // Fail to get sink which should cause the getStats() call to return false
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _)).Times(1);
 
     uint64_t returnedRenderedFrames;
     uint64_t returnedDroppedFrames;
@@ -491,7 +491,6 @@ TEST_F(GstGenericPlayerTest, ShouldGetVolumeWhenAudioSinkIsNull)
 {
     setPipelineState(GST_STATE_PLAYING);
 
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _)).Times(1);
 
     constexpr double kVolume{0.5};
     EXPECT_CALL(*m_gstWrapperMock, gstStreamVolumeGetVolume(_, GST_STREAM_VOLUME_FORMAT_LINEAR)).WillOnce(Return(kVolume));
@@ -706,7 +705,6 @@ TEST_F(GstGenericPlayerTest, shouldGetPendingSyncIfNoSinkAvailable)
     const bool kSyncValue{true};
 
     getContext([&](GenericPlayerContext &m_context) { m_context.pendingSync = kSyncValue; });
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _)).Times(1);
 
     bool sync;
     EXPECT_TRUE(m_sut->getSync(sync));
@@ -715,7 +713,6 @@ TEST_F(GstGenericPlayerTest, shouldGetPendingSyncIfNoSinkAvailable)
 
 TEST_F(GstGenericPlayerTest, shouldFailToGetSyncIfStubNull)
 {
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _)).Times(1);
 
     bool sync;
     EXPECT_FALSE(m_sut->getSync(sync));

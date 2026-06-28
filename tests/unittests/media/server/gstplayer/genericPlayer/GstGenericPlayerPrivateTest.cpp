@@ -153,6 +153,8 @@ protected:
         m_sut.reset();
     }
 
+    void applyToContext(const std::function<void(GenericPlayerContext &)> &fun) override { modifyContext(fun); }
+
     void modifyContext(const std::function<void(GenericPlayerContext &)> &fun)
     {
         std::mutex m_waitMutex;
@@ -221,7 +223,6 @@ protected:
                     return TRUE;
                 }));
 
-        EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _)).Times(1);
         EXPECT_CALL(*m_gstWrapperMock, gstStreamVolumeGetVolume(_, GST_STREAM_VOLUME_FORMAT_LINEAR))
             .WillOnce(Return(kVolume));
 
@@ -332,7 +333,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldScheduleFirstVideoFrameReceived)
 
 TEST_F(GstGenericPlayerPrivateTest, shouldNotSetVideoRectangleWhenVideoSinkIsNull)
 {
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kVideoSinkStr), _));
     EXPECT_FALSE(m_sut->setVideoSinkRectangle());
 }
 
@@ -390,13 +390,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetVideoRectangle)
 TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetImmediateOutputIfSinkIsNull)
 {
     modifyContext([&](GenericPlayerContext &context) { context.pendingImmediateOutputForVideo = true; });
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kVideoSinkStr), _))
-        .WillOnce(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = nullptr;
-            }));
     EXPECT_FALSE(m_sut->setImmediateOutput());
 }
 
@@ -425,13 +418,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetImmediateOutput)
 TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetLowLatencyIfSinkIsNull)
 {
     modifyContext([&](GenericPlayerContext &context) { context.pendingLowLatency = true; });
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _))
-        .WillOnce(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = nullptr;
-            }));
     EXPECT_FALSE(m_sut->setLowLatency());
 }
 
@@ -460,13 +446,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetLowLatency)
 TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetSyncIfSinkIsNull)
 {
     modifyContext([&](GenericPlayerContext &context) { context.pendingSync = true; });
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kAudioSinkStr), _))
-        .WillOnce(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = nullptr;
-            }));
     EXPECT_FALSE(m_sut->setSync());
 }
 
@@ -673,13 +652,6 @@ TEST_F(GstGenericPlayerPrivateTest, shouldSetUseBuffering)
 TEST_F(GstGenericPlayerPrivateTest, shouldFailToSetRenderFrameIfSinkIsNull)
 {
     modifyContext([&](GenericPlayerContext &context) { context.pendingRenderFrame = true; });
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kVideoSinkStr), _))
-        .WillOnce(Invoke(
-            [&](gpointer object, const gchar *first_property_name, void *element)
-            {
-                GstElement **elementPtr = reinterpret_cast<GstElement **>(element);
-                *elementPtr = nullptr;
-            }));
     EXPECT_FALSE(m_sut->setRenderFrame());
 }
 
@@ -2196,7 +2168,6 @@ TEST_F(GstGenericPlayerPrivateTest, failToSetShowVideoWindowNoValue)
 TEST_F(GstGenericPlayerPrivateTest, failToSetShowVideoWindowNoSink)
 {
     modifyContext([&](GenericPlayerContext &context) { context.pendingShowVideoWindow = true; });
-    EXPECT_CALL(*m_glibWrapperMock, gObjectGetStub(_, StrEq(kVideoSinkStr.c_str()), _));
     EXPECT_FALSE(m_sut->setShowVideoWindow());
 }
 
