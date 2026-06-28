@@ -5,7 +5,22 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-28 session 6 (**#14 MERGED to master `78767829`, pushed `origin/Ulrond`, #14 CLOSED** — engine core
+_Last updated: 2026-06-29 session 7 (**#13 STARTED — decomposed into slices; two landed as PRs, push-to-master gated so
+work flows via PR review now**). **Slice A = #15 (ABI v8 capability declaration)** on `feature/15-capability-declaration-abi`,
+**PR [#16](https://github.com/Ulrond/rialto/pull/16)**: the platform backend is now the capability authority —
+`IPlatformBackend::getSupportedProperties(mediaType, propertyNames)` (ABI 7→8); `GstCapabilities` delegates wholesale;
+the playbin-era registry factory-scan + the v6 `shouldSkipCapabilityProbe` band-aid + the `rtkv1sink` name are all gone
+(introspection relocated into `LinuxPlatformBackend`, observable result preserved on x86). servergstplayer 624/624,
+servermain 471/471. **Slice C = #17 (publish `rialto-platform-abi`)** on `feature/17-publish-platform-abi` (stacked on
+Slice A), **PR [#18](https://github.com/Ulrond/rialto/pull/18)**: CMake INTERFACE target + header install so a per-platform
+repo builds against the contract without vendoring the core (verified: a full-v8 consumer TU compiles against only
+`interface/`+`public/include`). **Local `master` reset to `origin/master` `50820b98` (clean); both slices live on their
+branches + PRs, NOT merged to master** (the auto-classifier blocked direct default-branch push; merge via the PRs or grant
+a push rule). NEXT = **Slice B** (relocate the amlhalasink `switchAudioCodec` fork out of the reference → needs the
+per-platform-repo placement decision, Decision 7) + **Slice D** (fixed-SONAME / Yocto virtual-provider packaging — meta
+layer) + **Slice E** (author per-SoC backends). See "**#13 decomposition**" below. The earlier session-6 state follows._
+
+_session 6 (**#14 MERGED to master `78767829`, pushed `origin/Ulrond`, #14 CLOSED** — engine core
 now builds NO pipeline topology: `IPlatformBackend::buildAudioPath`/`buildVideoPath` (**ABI v7**) let the backend construct
 + link its own subgraph; `LinuxPlatformBackend` owns the x86 topology as a PEER ("Linux is just another SoC"), the same seam
 an embedded backend uses for `appsrc → vendor-sink`. Fixes the embedded-topology risk (desktop `decodebin→audioconvert→
@@ -19,6 +34,43 @@ capability-discovery redesign) → #2 native `IMediaSession` (needs LLD) / #7 co
 dead svppay cleanup land later. **master tip = `0e5a85b4` (in sync with `origin/Ulrond`).** Also this session: the
 **LLD was recast to a destination design spec (v0.8) + a manager HLA decision brief was written** — both ceres drafts
 awaiting review→sync (see "LLD + HLA design docs" below)._
+
+---
+
+## Session update — 2026-06-29 (session 7) — #13 started; decomposed into slices; A + C landed as PRs
+
+**Push-to-master is now gated** — the Claude Code auto-classifier blocks a direct push to the `origin` default
+branch (the user's workflow routes work through PR review anyway). So this session's work flows via **stacked
+feature branches + PRs**, not the previous "merge `--no-ff` to local master then push" pattern. Local `master`
+was **reset to `origin/master` `50820b98`** (clean); the slices live on their branches + PRs. Merge them via the
+PRs (or grant a Bash push rule for `git push origin master` to restore the old flow).
+
+**#13 was surveyed and decomposed.** Key finding: the reference `LinuxPlatformBackend` is already cleaner than the
+(pre-#14) issue body implies — `createAudioSink`/`createVideoSink` are already generic autosinks. The only genuine
+vendor logic left **inside** the reference is two forks: the `amlhalasink` branch of `switchAudioCodec`
+(`LinuxPlatformBackend.cpp` ~`:663`) and (now removed) the `rtkv1sink` `shouldSkipCapabilityProbe`. The #12 dependency
+is effectively satisfied (its R2 secure tail is dead code, not a live core leak).
+
+### #13 decomposition
+
+| Slice | What | Status |
+| --- | --- | --- |
+| **A — capability-declaration ABI v8** | Backend is the capability authority: `getSupportedProperties` on `IPlatformBackend` (7→8); `GstCapabilities` delegates; retire the registry factory-scan + `shouldSkipCapabilityProbe` + the `rtkv1sink` name. Introspection relocated into the reference, observable result preserved. | **DONE — #15, PR [#16](https://github.com/Ulrond/rialto/pull/16).** servergstplayer 624/624, servermain 471/471. |
+| **C — publish `rialto-platform-abi`** | CMake INTERFACE target + install the ABI header so a per-platform repo builds against the contract without vendoring the core. Reference dogfoods the target. | **DONE — #17, PR [#18](https://github.com/Ulrond/rialto/pull/18)** (stacked on A). Verified a full-v8 consumer compiles against `interface/`+`public/include` only. |
+| **B — strip the last vendor fork** | Relocate the `amlhalasink` `switchAudioCodec` fork out of the reference so `LinuxPlatformBackend` is a pure generic peer; the fork moves to a per-SoC backend. | **BLOCKED on a decision (yours):** Decision 7 says vendor backends live in **separate per-platform repos**, not the core — so this isn't an in-repo edit. Either (i) author the amlogic backend in its own repo, or (ii) agree an in-repo `examples/` reference-vendor backend as a template. Not done autonomously — placement is your call. |
+| **D — packaging** | Fixed-SONAME `librialtoplatformbackend.so` + Yocto virtual-provider (`virtual/rialto-platform-backend`, `RPROVIDES`, `PREFERRED_RPROVIDER` per `MACHINE`); drop the loader's `librialtoplatform-*.so` glob, keep the `RIALTO_PLATFORM_BACKEND=` override. | **NOT STARTED — meta/image layer**, needs your Yocto recipe conventions. Today's reference emits `librialtoplatform-linux.so` (platform in the filename — the model D replaces). |
+| **E — per-SoC backends** | amlogic real; realtek/broadcom ABI-conformant mocks first; each certified against #7. | **NOT STARTED — separate repos** (depends on B/C/D + #7). |
+
+**Recommended next when you're back:** decide **B's placement** (separate repo vs in-repo example). If a separate
+repo: I can scaffold `Ulrond/rialto-platform-amlogic` (or a mock) building against the published `rialto-platform-abi`
+(C), carrying the `switchAudioCodec` amlhalasink fork, and wire the loader fallback test to dlopen it. If an in-repo
+example is acceptable as a template, that's a smaller self-contained slice I can do directly.
+
+**Branches/PRs this session:** `feature/15-capability-declaration-abi` → PR #16 (base master);
+`feature/17-publish-platform-abi` → PR #18 (base `feature/15…`, stacked). Issues #15, #17 opened under #13.
+The four stray working files (`.lastlogin`, `rialto.code-workspace`, `docs/EXTERNAL-INTERFACE-CONFORMANCE-REQUIREMENTS.md`,
+`docs/SHM-ZERO-COPY-SLOT-DESIGN.md`) were added to `.git/info/exclude` (a `git add -A` had briefly swept them into a
+commit; corrected before any push — use explicit `git add <paths>`, not `-A`, in this clone).
 
 ---
 
