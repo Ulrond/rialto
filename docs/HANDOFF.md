@@ -5,9 +5,245 @@ to continue the Rialto transformation work. It captures the state that is *not* 
 from the repo alone: the two-project map, what's done, and what's pending. This is a **living
 document** — ask me to "update the handoff" whenever the state moves and I'll refresh it.
 
-_Last updated: 2026-06-27 (**SoC isolation #1+#2 merged to local master `60a26699`, push held**; pivoted to the
-**data-path / memory-copy** work — server-side Stage A (zero-copy wrap) scoped; **rdk-gstreamer-utils decision
-revised** — fold behind `IPlatformBackend`, not a separate surface. Prior: #6 merged+pushed+closed)_
+_Last updated: 2026-06-28 session 6 (**#12 clean parts MERGED to master `bdec8837`, pushed `origin/Ulrond`; #12 stays
+OPEN** — rtkv1sink capability-probe skip moved behind `IPlatformBackend::shouldSkipCapabilityProbe` (**ABI v6**) + the
+isLive "Broadcom decoder" comment relabelled; the svppay/svpEnabled secure path is **held** for Stage-B fused-secure-decode,
+so #12 is deliberately not closed. servergstplayer 625/625, servermain 471/471, RialtoServerComponentTests 77/77. Folded
+the "registry-probe → backend-declared capabilities" redesign into #13). Prior: #9 MERGED (`1fca4bf7`, closed — getSink
+fallback + component-suite migration); Task 4 MERGED (`573a9b53`, #11 closed, ABI v5); per-SoC backends are PEERS ("Linux
+is just another SoC") behind a static versioned ABI; conformance suite specced; Stage A zero-copy scoped (#10, parked).
+NEXT = **#13** (peer per-SoC backend split + packaging; now also carries the capability-discovery redesign) → also #2
+native `IMediaSession` (needs LLD) / #7 conformance suite; #12 secure-path tail lands with Stage B._
+
+---
+
+## Session update — 2026-06-28 (session 6) — #12 clean parts DONE (#12 stays open)
+
+**Issue [#12](https://github.com/Ulrond/rialto/issues/12) clean parts DONE + MERGED; #12 deliberately left OPEN.** Branch
+`feature/12-engine-core-soc-isolation` (off master `1fca4bf7`, two staged commits) merged `--no-ff` → master **`bdec8837`**,
+pushed to `origin/Ulrond`. The merge subject references #12 **without a closing keyword** — the secure-path tail is still in
+scope. All suites green: servergstplayer **625/625**, servermain **471/471**, RialtoServerComponentTests **77/77**.
+
+- **`86711750`. ABI v6 — `IPlatformBackend::shouldSkipCapabilityProbe(elementName)`.** `GstCapabilities::getSupportedProperties`
+  named a SoC element: it hard-coded a `rtkv1sink` skip (instantiating it during the property probe turns another playback's
+  video black). The engine now asks the backend per element factory and names no SoC; the reference `LinuxPlatformBackend`
+  transitionally carries the realtek `rtkv1sink` name (tagged `→ per-SoC .so`). ABI constant + header doc bumped 5→6; mock,
+  loader fixture, `GstCapabilitiesTest`, `LinuxPlatformBackendTest` updated.
+- **`11c8c338`. isLive comment relabel.** The `GenericPlayerContext::isLive` doc-comment said "workaround for Broadcom decoder
+  issue"; relabelled to the platform-neutral contract (gates live-only handling such as decoder rate correction; any
+  platform-specific behaviour lives behind `IPlatformBackend`). Comment-only.
+- **HELD — svppay/svpEnabled secure path.** `GstSrc.cpp:522,527` (`svppay` secure payloader) + `GstGenericPlayer.cpp:1417`
+  (`ctx.svpEnabled = true`) are the only SoC specifics left above the seam in the engine core, **intentionally held** to land
+  with the Stage-B fused-secure-decode design (adjacent to #10). This is why **#12 is not closed.**
+
+**Architectural decision folded into [#13](https://github.com/Ulrond/rialto/issues/13): registry-probe → backend-declared
+capabilities.** `shouldSkipCapabilityProbe` is a transitional band-aid, not the target. `getSupportedProperties` discovers
+capabilities by **scanning the installed GStreamer factories and instantiating each** to read its GObject properties — a
+**playbin-era inference** (the core didn't build the pipeline, so it rediscovered caps from the registry). Post-playbin the
+backend builds the explicit pipeline and *is* the capability authority (the `isAudioFadeSupported()` fallback at
+`GstCapabilities.cpp:295` is the first instance). The need to skip an un-instantiable vendor element (`rtkv1sink`) is itself
+proof the registry scan is the wrong mechanism. #13 now carries a work item to add a backend capability-declaration call to
+the ABI, migrate `getSupportedProperties` onto it, and **retire the scan + `shouldSkipCapabilityProbe`** in lockstep with the
+#7 capability matrix. Endpoint: no probe, no skip-hook.
+
+**NEXT:** **#13** (peer per-SoC backend split + packaging; now also owns the capability-discovery redesign). Parallel/independent:
+#7 conformance suite (its own session-starter doc); #2 native `IMediaSession` (needs `LLD-rialto-transformation.md` from hpz4);
+#10 SHM zero-copy (parked). The #12 secure-path tail (svppay/svpEnabled) lands with Stage B.
+
+---
+
+## Session update — 2026-06-28 (session 5) — #9 DONE (getSink finish + component-suite migration)
+
+**Issue [#9](https://github.com/Ulrond/rialto/issues/9) DONE + MERGED.** Branch `feature/9-getsink-fallback-component-suite`
+(off master, two staged commits) merged `--no-ff` → master **`1fca4bf7`** ("Closes #9"), pushed to `origin/Ulrond`,
+**#9 CLOSED**. All three suites green: servergstplayer 623/623, servermain 471/471, RialtoServerComponentTests 77/77.
+
+- **9a — `9b7aa3b9`. `getSink` backend-stored sink is the exclusive source.** Deleted the dead
+  `gObjectGet("audio-sink"/"video-sink"/"text-sink")` property read from `GstGenericPlayer::getSink`; it now returns
+  the context-stored sink (`m_context.audioSink`/`videoSink`/`subtitleSink`, ref'd) or nullptr — no playbin to read
+  off, no auto-sink unwrap. Unit tests: the `expectGetAVSink`/`expectGetSink` helpers populate the SUT context via a
+  per-fixture seam (new base virtual `applyToContext`) + expect the getSink ref; the destroy-time `termPipeline` unref
+  of each stored sink is expected in `gstPlayerWillBeDestroyed` (tracked via `m_storedSinks`). Null-sink failure cases
+  dropped their dead property-read stubs. Completes the `explicit-pipeline-sink-access` contract (was relaxed).
+- **9b — `b507b43a`. Server component suite migrated onto the explicit pipeline + injectable reference backend.**
+  Harness (`MediaPipelineTest`/`GstreamerStub`): plain `gstPipelineNew("media_pipeline")` (no playbin/flags/playsink/
+  uri/brcmaudiosink); `setupPipeline` drops the source-setup/element-setup/deep-element-added signals; the attach
+  helpers build the explicit `appsrc -> decodebin -> audioconvert -> audioresample -> autoaudiosink` and
+  `appsrc -> decodebin -> autovideosink` chains (reference `LinuxPlatformBackend` sinks via `gstElementFactoryMake`),
+  store + return them through `getSink`, and **capture the decodebin `pad-added` callback** so a test can drive the
+  autoplugged-decoder setup (`SetupAudioDecoder`/`SetupVideoParser`) the mocked decodebin never emits. `sourceWillBeSetup`/
+  `setupSource`/`willFinishSetupAndAddSource` are no-ops; `willSetupAndAddSource` expresses
+  `FinishSetupSource::configureExplicitAppSrc`. **Scope note:** the "12 known-red" undercounted — the suite was
+  SIGSEGV-ing partway, so ~30 further tests had never run and carried un-updated fallout from Tasks 1/4 (isVideoMaster,
+  audio fade/gap, codec-switch, web-audio sink all moved behind `IPlatformBackend`). All were aligned to the reference
+  backend to get `build_ct.py -s server` fully green (e.g. no amlhalasink registry probe; audio fade via sink
+  "audio-fade" property; `use-buffering` routed to the audio decodebin). **No production change beyond 9a's `getSink`.**
+
+**ARCHITECTURAL DIRECTION nailed down this session (the "not recoverable from the repo" part — read before touching the
+platform layer).** Driven by the user; this is the target the remaining SoC-isolation work must hit:
+
+- **Two northbound external surfaces, agnostic contract.** MSE sink (`rialtomse*sink`, the `rialto-gstreamer` companion
+  repo — client-side adapter over the native API/IPC) + native client API (`media/public/include/*`). The MSE
+  *contract* (element names, property names, caps-negotiation format) is platform-agnostic; the **advertised
+  capability set is platform-derived** (`GstCapabilities::getSupportedProperties` enumerates the real element
+  factories on the box + asks the backend, e.g. `isAudioFadeSupported`). The SoC-specific *mapping* (agnostic intent →
+  vendor element/property/value) happens server-side in the `IPlatformBackend` `.so`, NOT in the MSE sink. Public/client
+  API is grep-clean of SoC names (verified). Surfaces stay observably identical across the migration.
+- **Per-SoC backends are PEERS — "Linux is just another SoC".** `IPlatformBackend` is the stable contract; every
+  platform is a peer impl behind it (`PlatformBackend -> Linux` reference, `-> Amlogic`, `-> Realtek`, `-> Broadcom`),
+  with **no privileged container**. Today `LinuxPlatformBackend` wrongly holds every vendor's logic (~19 vendor-name
+  hits — amlhalasink/rtkaudiosink ladder + the amlogic codec-switch cluster, tagged `-> per-SoC .so`); that is a
+  transitional shortcut, not the target. → **#13**.
+- **Independent release cadence is the requirement.** Must be able to fix a BCM bug without touching Amlogic (impossible
+  today — same binary). Each layer (incl. Linux) = own repo/build/package, **independent semver**, building against a
+  **published, stable `rialto-platform-abi`** artifact (`IPlatformBackend.h` + the version constant). **The ABI is
+  static by design:** two cases only — it does NOT change (platforms + core ship bug-fixes fully independently) or it
+  DOES (rare, deliberate, additive → re-release ALL platforms at the new version). No mixed-ABI rootfs. **Therefore the
+  loader's exact-match ABI check (`PlatformBackendLoader.cpp:23`) is CORRECT** — it enforces "every backend on this
+  image is at the core's ABI version"; version-range machinery was explicitly REJECTED (it would permit the mixed
+  state the process forbids).
+- **Packaging: build/install-time selection, not runtime discovery.** All platform packages emit the **same fixed
+  SONAME** (e.g. `librialtoplatformbackend.so`) at a fixed path; platform identity lives in the **package name** +
+  build output dir, not the filename. Rialto CI builds all platforms → N installable packages; the platform-specific
+  image assembler installs exactly one (Yocto virtual provider: image deps on `virtual/rialto-platform-backend`, each
+  package `RPROVIDES` it, `PREFERRED_RPROVIDER` per `MACHINE` — same path = file conflict by design = "exactly one
+  installed"). Drop the loader's `RIALTO_PLATFORM_DIR` dir-scan / `-*` glob; keep the single `RIALTO_PLATFORM_BACKEND=/path`
+  override for the dev/CI/conformance co-resident case. → fold into **#13**.
+
+**Issues raised this session (under Milestone [#1](https://github.com/Ulrond/rialto/issues/1)):**
+- **[#12](https://github.com/Ulrond/rialto/issues/12) — finish engine-core SoC isolation (cadence-coupling bug, do FIRST).**
+  Three SoC specifics still ABOVE the seam in `media/server/gstplayer`: `rtkv1sink` skip in capability probing
+  (`GstCapabilities.cpp:254`); the `svppay` secure-payloader (`GstSrc.cpp:522`, wired `:453`) + hard-coded
+  `ctx.svpEnabled = true` (`GstGenericPlayer.cpp:1417`); a "Broadcom decoder" comment (`GenericPlayerContext.h:282`).
+  While the core hard-codes a vendor specific, a vendor fix leaks into a *core* release → couples cadences. Clean parts
+  (rtkv1sink → backend hook, relabel) are low-risk; **hold `svppay`/SVP** to land with the Stage-B fused-secure-decode
+  design (adjacent to #10).
+- **[#13](https://github.com/Ulrond/rialto/issues/13) — peer per-SoC backends (Task 5).** Strip `LinuxPlatformBackend`
+  to a clean reference; publish the stable ABI header; author per-SoC `.so`s in per-platform repos (Decision 7; amlogic
+  real, realtek/broadcom ABI-conformant mocks first); per-package semver + the fixed-SONAME/virtual-provider packaging
+  above. **Depends on #12.** Stability gate: a fix in one SoC layer cannot affect another; certify each backend against
+  the conformance suite (#7).
+
+**NEXT:** **#12** (engine-core leaks — prereq; start with the rtkv1sink cap-probe hook + Broadcom relabel, hold svppay)
+→ **#13** (peer per-SoC backend split + packaging). Parallel/independent: #2 native `IMediaSession`/`canCreateSession()`
++ `@deprecated` facade (needs `LLD-rialto-transformation.md` from hpz4); #7 versioned conformance suite (start Phase 0
+ut-core on x86 — `EXTERNAL-INTERFACE-CONFORMANCE-REQUIREMENTS.md` is its brief); SHM zero-copy #10 (parked).
+
+---
+
+## Session update — 2026-06-28 (session 4) — testing strategy + x86-first; NEXT = #9
+
+**Task 4 is MERGED + pushed.** `feature/11-soc-audio-ops-abi-v4` → master via `--no-ff` **`573a9b53`**, pushed to
+`origin/Ulrond`, **issue #11 CLOSED**. Commits `9c168f26` (ABI v4: fade/gap) + `73528323` (ABI v5: codec switch).
+Engine core (`media/server/gstplayer`) is grep-clean of SoC names; they live only under `media/server/platform`
+(`LinuxPlatformBackend`, transitional → per-SoC `.so`). `IPlatformBackend` = **ABI v5**. Engine-side of Milestone-1
+requirement 1 is **confirmed complete** (verified: no SoC names above the ABI, no SoC `#ifdef`, ABI versioned).
+
+**External-interface conformance suite — fully specced** in `external/rialto/docs/EXTERNAL-INTERFACE-CONFORMANCE-
+REQUIREMENTS.md` (self-contained session-starter). Decisions baked in:
+- **Requirements-derived** from the premium-OTT set — **Netflix (NRDP), YouTube (YTS), Amazon Prime Video, Apple
+  TV** — each case traceable to the requirement(s)/app(s); driven against Rialto's published external surface (MSE
+  `rialtomse*sink` + the native client API in `media/public/include/*`).
+- **Independent installable package** — built separately, **raft-deployed + run ON the target** against the
+  *installed* Rialto; it does **not** build Rialto. Harness = **ut-core (`VARIANT=CPP`) + python-raft**, repo
+  `Ulrond/rialto-conformance` (to create).
+- **Phased ut-core L1→L4**; **L4 = the combined-app requirements**, runs on **x86** (reference backend, CI gate)
+  *and* real hardware (for hw-gated cells: secure path/L1 DRM, HDR/Atmos, 4K-8K, vendor sinks).
+- **DRM gap surfaced:** Rialto advertises Widevine + PlayReady (+ Netflix-PlayReady); **Apple FairPlay
+  (`com.apple.fps`) is unsupported** → flagged coverage gap + backlog item (add FPS to Rialto/OCDM).
+
+**x86-first decision (this session).** x86 **is** a platform target and its backend already exists — the reference
+`LinuxPlatformBackend` (autosinks), loaded over the same v5 ABI. So **bring up x86 fully first; vendor SoCs
+(amlogic/realtek/broadcom) are DEFERRED** (Task 5 parked — a background job to author `librialtoplatform-amlogic`
+was started then stopped; no files left). realtek/broadcom will be mocked, amlogic real, when SoCs resume.
+
+**NEXT — issue [#9](https://github.com/Ulrond/rialto/issues/9) (the immediate transformation step, all on x86):**
+1. **Finish `getSink`** — delete the dead `gObjectGet("audio-sink"/"video-sink"/"text-sink")` fallback so the
+   backend-stored sink is the *exclusive* source (completes the `explicit-pipeline-sink-access` contract).
+2. **Migrate the server component suite** (`tests/componenttests/server`, `build_ct.py -s server`) off the old
+   playbin/source-setup GStreamer mocks onto the **injectable reference backend** (the hook #6 added) so it builds
+   the explicit chain → **clears the 12 known-red component tests** (red since 5b/5c, not a regression).
+   - Branch `feature/9-…` off master; test-first, staged like Task 4. Build: `./build_ut_docker.sh -s
+     servergstplayer servermain` for units; component tests via `sc docker run -l -t local rialto-build -- env
+     PROFILER_ENABLED=true python3 build_ct.py -s server` (see Build/test section).
+   - Restores the full `explicit-pipeline-sink-access` spec (currently relaxed to an interim contract).
+
+**Other open (deferred / parallel):** Task 5 (vendor SoC `.so`s); the **conformance suite** itself (separate
+session, start at Phase 0 ut-core on x86 — the doc is its brief); **Req 2/4** native `IMediaSession`/
+`canCreateSession()` + `@deprecated` facade (issue #2, **needs `LLD-rialto-transformation.md` from hpz4**); SHM
+zero-copy (#10, parked per user). FairPlay key-system gap.
+
+---
+
+## Session update — 2026-06-27 (session 3)
+
+> **Superseded by session 4** — Task 4 is now MERGED (`573a9b53`, #11 closed) and the testing strategy is set;
+> see the session-4 entry above. Kept for the per-commit detail.
+
+**Task 4 (rdk-gstreamer-utils convergence) DONE — the engine core is now grep-clean of SoC element names.**
+User direction: ignore Beej's `RdkGstreamerUtilsWrapper`-as-second-home approach; do what the transformation
+design dictates — one versioned seam. The four remaining live-graph SoC audio ops folded behind `IPlatformBackend`
+(reference = generic/no-op, vendor logic → per-SoC `.so`, which MAY call rdk-gstreamer-utils internally).
+
+- **Issue [#11](https://github.com/Ulrond/rialto/issues/11)**, branch **`feature/11-soc-audio-ops-abi-v4`** off
+  master. **Two local commits, NOT pushed** (push gated):
+  - **11a — `9c168f26`. ABI v4** (additive): `isAudioFadeSupported` / `audioFade` / `processAudioGap`. `SetVolume`
+    + `ProcessAudioGap` tasks delegate to the backend via the player; `GstCapabilities` + `GenericPlayerTaskFactory`
+    drop their now-dead rdk-gstreamer-utils dependency. servergstplayer 619/619, servermain 471/471.
+  - **11b — `73528323`. ABI v5** (additive): `switchAudioCodec(AudioCodecSwitchContext)` — a **wrapper-type-free**
+    POD (GstElement handles + audio-attribute primitives + in/out `isAudioAacState`; no rdk-gstreamer-utils types
+    cross the seam). The amlogic codec-switch cluster (`configAudioCap`/`haltAudioPlayback`/`resumeAudioPlayback`/
+    `firstTimeSwitchFromAC3toAAC`/the pad surgery/the `performAudioTrackCodecChannelSwitch` fork) **moved into
+    `LinuxPlatformBackend` transitionally** (the `amlhalasink` name-check now lives inside the backend, tagged
+    `→ per-SoC .so`), alongside the rdk-utils generic path. `PlatformHostContext` gained an optional
+    `rdkGstreamerUtilsWrapper`; `GstGenericPlayer` sheds its rdk dependency entirely (routed via the host context
+    in `create()`). servergstplayer 623/623, servermain 471/471.
+- **Engine core (`media/server/gstplayer`) is grep-clean of SoC names**; they live only under
+  `media/server/platform` (`LinuxPlatformBackend`, transitional). This completes the **engine-side** of Milestone-1
+  requirement 1 (SoC behind the versioned ABI). `IPlatformBackend` is now **ABI v5**.
+
+**NEXT (from the requirement-coverage map):** (a) push `feature/11` + merge to master (gated on go-ahead);
+(b) **#9** getSink-fallback finish + component-suite migration (unblocked now #6 is done; clears 12 red CT);
+(c) **Task 5** author per-SoC `.so`s in per-platform repos (carry the v3–v5 vendor logic out of `LinuxPlatformBackend`);
+(d) **#7** versioned conformance suite (ut-core + raft) — makes "upgrade SoC without re-test" enforceable;
+(e) **Req 2/4** greenfield native `IMediaSession`/`canCreateSession()` + `@deprecated` facade (issue #2) — **needs
+`LLD-rialto-transformation.md` from hpz4** (spec project, not on ceres). SHM zero-copy (#10) parked per user.
+
+---
+
+## Session update — 2026-06-27 (session 2)
+
+**Push gate cleared.** `master` (tip `a7da9fba`) **pushed to `origin/Ulrond`** — was 9 ahead (SoC #1/#2
+merge `4fe13bb3` + handoff docs), now in sync. The "PUSH HELD" notes in the section below are superseded.
+
+**Stage A (server-side zero-copy front end) — fully scoped, ready to implement.** Two carried-over
+decisions resolved with the user: **(1)** push now (done); **(2)** the data-path work is a **standalone
+issue, NOT under Milestone #1** (it spans the client↔server need-data protocol).
+
+- **Issue [#10](https://github.com/Ulrond/rialto/issues/10)** — "SHM zero-copy front end (Stage A): wrap
+  shared memory instead of copying in createBuffer". Self-contained body (the design doc is gitignored).
+- **Branch `feature/10-shm-zero-copy-front-end`** cut off master. **No commits yet** — the design + spec
+  are working/excluded files on disk, not yet committed to the branch.
+- **Design doc** `external/rialto/docs/SHM-ZERO-COPY-SLOT-DESIGN.md` — the gating-risk spec the data-path
+  note said "must be specced". **The gating risk, exact:** `ReadShmDataAndAttachSamples::execute()` recycles
+  the SHM region (`notifyNeedMediaData` → `clearData` full-region memset, `ReadShmDataAndAttachSamples.cpp:107`)
+  the instant it has read a batch — safe today **only** because `createBuffer` (`GstGenericPlayer.cpp:1513-1514`)
+  copied the bytes out first. A wrap aliases SHM → corrupts in-flight buffers. **Fix = SHM slot lifetime:**
+  ring of N slots (start N=3) per `(session, sourceType)`; states FREE→WRITING→IN_FLIGHT→FREE; a slot frees
+  only when every wrapping `GstBuffer` is destroyed (per-slot refcount ← `GDestroyNotify`); `NeedMediaData`
+  gated on a FREE slot, **deferred + re-armed** on release when none free (stalled decoder back-pressures the
+  client). Client lib (`MediaFrameWriterV2`) + `DataReaderV2` unchanged — a slot is just a different absolute
+  offset. `ActiveRequests::addSegment` heap copy is the **separate non-SHM** attach path, untouched.
+- **OpenSpec change `shm-zero-copy-front-end`** (under the git-excluded `openspec/` trial dir) — **4/4
+  artifacts, validates.** New capability `zero-copy-media-data-path`. proposal/spec/design/tasks written;
+  tasks are staged **test-first**: (1) inert `SharedMemoryBuffer` slot ring + direct unit tests; (2)
+  `createBuffer` wrap with `GDestroyNotify`; (3) free-slot-gated/deferred `NeedMediaData`; (4) validate.
+
+**NEXT:** `/opsx:apply shm-zero-copy-front-end` — implement task group 1 (the behaviourally-inert slot ring,
+green via `./build_ut_docker.sh -s servermain`), then wrap, then flow control. **Scope OUT** (compose later):
+copy 4 (OCDM-direct buffers); Stage B fused secure decode via the HAL decoder on the `IPlatformBackend` ABI;
+the client-side SHM `GstAllocator` (copy 2). Open sizing question: final N — instrument appsrc `max-bytes` /
+decoder input-queue depth on a real stream before fixing it.
 
 ---
 
@@ -495,6 +731,10 @@ against the injectable backend (#6) — the same move that gives the suite its o
 - `external/rialto/docs/PLAYBIN-REMOVAL-PLAN.md` — the 5-stage plan; stage-3 sub-commits + decodebin decision.
 - `external/rialto/docs/RIALTO-INTEGRATION-TEST-PLAN.md` — versioned-conformance test plan (ut-core + raft;
   pinned-harness + ABI-versioned-contract axes; no-conversion gtest ingest; coverage matrix).
+- `external/rialto/docs/EXTERNAL-INTERFACE-CONFORMANCE-REQUIREMENTS.md` — **self-contained session-starter for
+  the external-interface testing workstream** (northbound MSE sink + native client API; version-independent,
+  platform-agnostic oracle; binds to the published contract; `Ulrond/rialto-conformance` repo). Hand this to a
+  fresh session to tackle the conformance suite (#7) in parallel.
 - `pipewire_example/experiments/playbin-vs-explicit/RESULTS.md` — the evidence report, committed on
   `feature/13-binder-hal-bridge` (`1549409`, `40148ac`). Now an A-vs-B report (current playbin vs new
   decodebin path; hand-built floor demoted to a reference), with measured lifecycle / scaling / memory.
