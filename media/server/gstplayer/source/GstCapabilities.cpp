@@ -224,86 +224,10 @@ std::vector<std::string> GstCapabilities::getSupportedProperties(MediaSourceType
 {
     waitForInitialisation();
 
-    // Get gstreamer element factories. The following flag settings will fetch both SINK and DECODER types
-    // of gstreamer classes...
-    GstElementFactoryListType factoryListType{GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_DECODER |
-                                              GST_ELEMENT_FACTORY_TYPE_PARSER};
-    {
-        // If MediaSourceType::AUDIO is specified then adjust the flag so that we
-        // restrict the list to gstreamer AUDIO element types (and likewise for video and subtitle)...
-        static const std::unordered_map<MediaSourceType, GstElementFactoryListType>
-            kLookupExtraConditions{{MediaSourceType::AUDIO, GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO},
-                                   {MediaSourceType::VIDEO, GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO},
-                                   {MediaSourceType::SUBTITLE, GST_ELEMENT_FACTORY_TYPE_MEDIA_SUBTITLE}};
-        auto i = kLookupExtraConditions.find(mediaType);
-        if (i != kLookupExtraConditions.end())
-            factoryListType |= i->second;
-    }
-
-    GList *factories{m_gstWrapper->gstElementFactoryListGetElements(factoryListType, GST_RANK_NONE)};
-
-    // Scan all returned elements for the specified properties...
-    std::unordered_set<std::string> propertiesToLookFor{propertyNames.begin(), propertyNames.end()};
-    std::vector<std::string> propertiesFound;
-    for (GList *iter = factories; iter != nullptr && !propertiesToLookFor.empty(); iter = iter->next)
-    {
-        GstElementFactory *factory = GST_ELEMENT_FACTORY(iter->data);
-
-        // Some platforms expose an element that must not be instantiated during capability probing
-        // (doing so disrupts a concurrent playback). The platform backend owns that SoC knowledge; the
-        // engine core names no element. Ask the backend whether to skip this factory.
-        const char *factoryName{GST_OBJECT_NAME(GST_OBJECT(factory))};
-        if (m_platformBackend->shouldSkipCapabilityProbe(factoryName))
-        {
-            RIALTO_SERVER_LOG_DEBUG("Skipping capability probe for element '%s'", factoryName);
-            continue;
-        }
-
-        GstElement *elementObj{nullptr};
-
-        // We instantiate an object because fetching the class, even after gstPluginFeatureLoad,
-        // was found to sometimes return a class with no properties. A code branch is
-        // kept with this feature "supportedPropertiesViaClass"
-        elementObj = m_gstWrapper->gstElementFactoryCreate(factory, nullptr);
-        if (elementObj)
-        {
-            GParamSpec **props;
-            guint nProps;
-            props = m_glibWrapper->gObjectClassListProperties(G_OBJECT_GET_CLASS(elementObj), &nProps);
-            if (props)
-            {
-                for (guint j = 0; j < nProps && !propertiesToLookFor.empty(); ++j)
-                {
-                    std::string propName{props[j]->name};
-                    auto it = propertiesToLookFor.find(propName);
-                    if (it != propertiesToLookFor.end())
-                    {
-                        RIALTO_SERVER_LOG_DEBUG("Found property '%s'", propName.c_str());
-                        propertiesFound.push_back(std::move(propName));
-                        propertiesToLookFor.erase(it);
-                    }
-                }
-                m_glibWrapper->gFree(props);
-            }
-            m_gstWrapper->gstObjectUnref(elementObj);
-        }
-    }
-
-    // Some sinks do not specifically support the "audio-fade" property, but the SoC may still perform audio fade
-    // through its platform audio path. Check whether the platform backend reports audio-fade support if the property
-    // is required and we haven't found it in the sinks.
-    if (propertiesToLookFor.find("audio-fade") != propertiesToLookFor.end())
-    {
-        bool socAudioFadeSupported = m_platformBackend->isAudioFadeSupported();
-        if (socAudioFadeSupported)
-        {
-            RIALTO_SERVER_LOG_DEBUG("Audio fade property is supported by the SoC");
-            propertiesFound.push_back("audio-fade"); // Add "audio-fade" if supported by SoC
-        }
-    }
-    // Cleanup
-    m_gstWrapper->gstPluginFeatureListFree(factories);
-    return propertiesFound;
+    // The platform backend builds the explicit pipeline, so it is the capability authority: it reports
+    // which queried properties the platform supports for this media type. The engine core no longer
+    // scans the GStreamer registry or names any SoC element.
+    return m_platformBackend->getSupportedProperties(mediaType, propertyNames);
 }
 
 void GstCapabilities::fillSupportedMimeTypes()

@@ -23,6 +23,10 @@
 #include <cstring>
 #include <ctime>
 #include <new>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -701,16 +705,77 @@ bool LinuxPlatformBackend::switchAudioCodec(const AudioCodecSwitchContext &ctx)
     return true;
 }
 
-bool LinuxPlatformBackend::shouldSkipCapabilityProbe(const std::string &elementName) const
+std::vector<std::string> LinuxPlatformBackend::getSupportedProperties(MediaSourceType mediaType,
+                                                                     const std::vector<std::string> &propertyNames) const
 {
-    // transitional -> per-SoC .so : the rtkv1sink element-name check folds into the backend. A
-    // per-SoC (realtek) .so implementing this same ABI answers true for its own problematic element;
-    // the engine core names no SoC. The reference Linux backend has no such element, so the only name
-    // it knows is the transitional realtek one carried here until a per-SoC .so is authored.
-    //
-    // WORKAROUND: instantiating "rtkv1sink" during capability probing turns another playback's video
-    // black, so it must never be created just to read its properties.
-    return elementName == "rtkv1sink";
+    std::vector<std::string> propertiesFound;
+    if (!m_gstWrapper || !m_glibWrapper)
+        return propertiesFound;
+
+    // The reference backend discovers its capabilities by introspecting the installed GStreamer
+    // sink/decoder/parser elements it can use. A per-SoC backend answers for its own elements and
+    // never asks the core to instantiate a vendor sink (which is why no capability-probe skip hook
+    // exists): it builds the pipeline, so it is the capability authority.
+    GstElementFactoryListType factoryListType{GST_ELEMENT_FACTORY_TYPE_SINK | GST_ELEMENT_FACTORY_TYPE_DECODER |
+                                              GST_ELEMENT_FACTORY_TYPE_PARSER};
+    {
+        // If MediaSourceType::AUDIO is specified then adjust the flag so that we
+        // restrict the list to gstreamer AUDIO element types (and likewise for video and subtitle)...
+        static const std::unordered_map<MediaSourceType, GstElementFactoryListType>
+            kLookupExtraConditions{{MediaSourceType::AUDIO, GST_ELEMENT_FACTORY_TYPE_MEDIA_AUDIO},
+                                   {MediaSourceType::VIDEO, GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO},
+                                   {MediaSourceType::SUBTITLE, GST_ELEMENT_FACTORY_TYPE_MEDIA_SUBTITLE}};
+        auto i = kLookupExtraConditions.find(mediaType);
+        if (i != kLookupExtraConditions.end())
+            factoryListType |= i->second;
+    }
+
+    GList *factories{m_gstWrapper->gstElementFactoryListGetElements(factoryListType, GST_RANK_NONE)};
+
+    // Scan all returned elements for the specified properties...
+    std::unordered_set<std::string> propertiesToLookFor{propertyNames.begin(), propertyNames.end()};
+    for (GList *iter = factories; iter != nullptr && !propertiesToLookFor.empty(); iter = iter->next)
+    {
+        GstElementFactory *factory = GST_ELEMENT_FACTORY(iter->data);
+
+        // We instantiate an object because fetching the class, even after gstPluginFeatureLoad,
+        // was found to sometimes return a class with no properties.
+        GstElement *elementObj{m_gstWrapper->gstElementFactoryCreate(factory, nullptr)};
+        if (elementObj)
+        {
+            GParamSpec **props;
+            guint nProps;
+            props = m_glibWrapper->gObjectClassListProperties(G_OBJECT_GET_CLASS(elementObj), &nProps);
+            if (props)
+            {
+                for (guint j = 0; j < nProps && !propertiesToLookFor.empty(); ++j)
+                {
+                    std::string propName{props[j]->name};
+                    auto it = propertiesToLookFor.find(propName);
+                    if (it != propertiesToLookFor.end())
+                    {
+                        RIALTO_SERVER_LOG_DEBUG("Found property '%s'", propName.c_str());
+                        propertiesFound.push_back(std::move(propName));
+                        propertiesToLookFor.erase(it);
+                    }
+                }
+                m_glibWrapper->gFree(props);
+            }
+            m_gstWrapper->gstObjectUnref(elementObj);
+        }
+    }
+
+    // Some sinks do not specifically support the "audio-fade" property, but the platform may still
+    // perform audio fade through its platform audio path. Report audio-fade support if required and
+    // not already found in the elements.
+    if (propertiesToLookFor.find("audio-fade") != propertiesToLookFor.end() && isAudioFadeSupported())
+    {
+        RIALTO_SERVER_LOG_DEBUG("Audio fade property is supported by the platform");
+        propertiesFound.push_back("audio-fade");
+    }
+
+    m_gstWrapper->gstPluginFeatureListFree(factories);
+    return propertiesFound;
 }
 
 } // namespace firebolt::rialto::server
