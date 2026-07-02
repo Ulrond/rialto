@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <malloc.h>
 #include <stdexcept>
 
 #include "FlushWatcher.h"
@@ -586,6 +587,9 @@ void GstGenericPlayer::termPipeline()
     // Delete the pipeline
     m_gstWrapper->gstObjectUnref(m_context.pipeline);
 
+    m_glibWrapper->gThreadPoolStopUnusedThreads();
+    malloc_trim(0);
+
     RIALTO_SERVER_LOG_MIL("RialtoServer's pipeline terminated");
 }
 
@@ -594,6 +598,14 @@ void GstGenericPlayer::attachSource(const std::unique_ptr<IMediaPipeline::MediaS
     if (m_workerThread)
     {
         m_workerThread->enqueueTask(m_taskFactory->createAttachSource(m_context, *this, attachedSource));
+    }
+}
+
+void GstGenericPlayer::removeSource(const MediaSourceType &mediaSourceType)
+{
+    if (m_workerThread)
+    {
+        m_workerThread->enqueueTask(m_taskFactory->createRemoveSource(m_context, *this, mediaSourceType));
     }
 }
 
@@ -702,6 +714,7 @@ void GstGenericPlayer::notifyPlaybackInfo()
 {
     PlaybackInfo info;
     getPosition(info.currentPosition);
+    m_context.streamPosition.store(info.currentPosition);
     if (m_context.audioFadeEnabled)
     {
         info.volume = m_context.audioFadeVolume;
@@ -1107,6 +1120,26 @@ void GstGenericPlayer::notifyNeedMediaData(const MediaSourceType mediaSource)
     }
 }
 
+void GstGenericPlayer::notifyNeedMediaDataWithDelay(const MediaSourceType mediaSource)
+{
+    auto elem = m_context.streamInfo.find(mediaSource);
+    if (elem != m_context.streamInfo.end())
+    {
+        StreamInfo &streamInfo = elem->second;
+        streamInfo.isNeedDataPending = false;
+
+        // Schedule new NeedMediaData if we still need it
+        if (m_gstPlayerClient && streamInfo.isDataNeeded)
+        {
+            streamInfo.isNeedDataPending = m_gstPlayerClient->notifyNeedMediaDataWithDelay(mediaSource);
+        }
+    }
+    else
+    {
+        RIALTO_SERVER_LOG_WARN("Media type %s could not be found", common::convertMediaSourceType(mediaSource));
+    }
+}
+
 void GstGenericPlayer::attachData(const firebolt::rialto::MediaSourceType mediaType)
 {
     auto elem = m_context.streamInfo.find(mediaType);
@@ -1463,7 +1496,7 @@ void GstGenericPlayer::scheduleAudioUnderflow()
 {
     if (m_workerThread)
     {
-        bool underflowEnabled = m_context.isPlaying;
+        bool underflowEnabled = m_context.isPlaying && !m_context.audioSourceRemoved;
         m_workerThread->enqueueTask(
             m_taskFactory->createUnderflow(m_context, *this, underflowEnabled, MediaSourceType::AUDIO));
     }

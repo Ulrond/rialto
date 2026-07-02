@@ -26,6 +26,7 @@
 #include "MatchersGenericPlayer.h"
 #include "tasks/generic/AttachSamples.h"
 #include "tasks/generic/AttachSource.h"
+#include "tasks/generic/RemoveSource.h"
 #include "tasks/generic/CheckAudioUnderflow.h"
 #include "tasks/generic/EnoughData.h"
 #include "tasks/generic/Eos.h"
@@ -87,7 +88,7 @@ constexpr auto kAudioSourceId{static_cast<std::int32_t>(firebolt::rialto::MediaS
 constexpr auto kVideoSourceId{static_cast<std::int32_t>(firebolt::rialto::MediaSourceType::VIDEO)};
 constexpr auto kSubtitleSourceId{static_cast<std::int32_t>(firebolt::rialto::MediaSourceType::SUBTITLE)};
 constexpr gint64 kItHappenedInThePast = 1238450934;
-constexpr gint64 kItWillHappenInTheFuture = 3823530248;
+constexpr gint64 kItWillHappenInTheFuture = 9823530248;
 constexpr int64_t kDuration{9000000000};
 constexpr int32_t kSampleRate{13};
 constexpr int32_t kNumberOfChannels{4};
@@ -1994,21 +1995,25 @@ void GenericTasksTestsBase::shouldFlushAudioSrcFailure()
 void GenericTasksTestsBase::shouldReadAudioData()
 {
     EXPECT_CALL(*testContext->m_dataReader, readData()).WillOnce(Invoke([&]() { return buildAudioSamples(); }));
+    EXPECT_CALL(*testContext->m_dataReader, isBufferFull()).WillOnce(Return(true));
 }
 
 void GenericTasksTestsBase::shouldReadVideoData()
 {
     EXPECT_CALL(*testContext->m_dataReader, readData()).WillOnce(Invoke([&]() { return buildVideoSamples(); }));
+    EXPECT_CALL(*testContext->m_dataReader, isBufferFull()).WillOnce(Return(true));
 }
 
 void GenericTasksTestsBase::shouldReadSubtitleData()
 {
     EXPECT_CALL(*testContext->m_dataReader, readData()).WillOnce(Invoke([&]() { return buildSubtitleSamples(); }));
+    EXPECT_CALL(*testContext->m_dataReader, isBufferFull()).WillOnce(Return(true));
 }
 
 void GenericTasksTestsBase::shouldReadUnknownData()
 {
     EXPECT_CALL(*testContext->m_dataReader, readData()).WillOnce(Invoke([&]() { return buildUnknownSamples(); }));
+    EXPECT_CALL(*testContext->m_dataReader, isBufferFull()).WillOnce(Return(true));
 }
 
 void GenericTasksTestsBase::shouldNotAttachUnknownSamples()
@@ -2414,4 +2419,102 @@ void GenericTasksTestsBase::triggerSetUseBuffering()
     task.execute();
 
     EXPECT_EQ(testContext->m_context.pendingUseBuffering, kUseBuffering);
+}
+
+void GenericTasksTestsBase::setContextSourceNull()
+{
+    testContext->m_context.source = nullptr;
+}
+
+void GenericTasksTestsBase::setContextAudioSourceRemoved()
+{
+    testContext->m_context.audioSourceRemoved = true;
+}
+
+// --- grafted from upstream #530 (RemoveSource / audio-source-removal test helpers) ---
+
+void GenericTasksTestsBase::setContextNeedDataAudioOnly()
+{
+    auto audioStreamIt{testContext->m_context.streamInfo.find(firebolt::rialto::MediaSourceType::AUDIO)};
+    ASSERT_NE(testContext->m_context.streamInfo.end(), audioStreamIt);
+
+    audioStreamIt->second.isDataNeeded = true;
+}
+
+void GenericTasksTestsBase::setContextAudioInitialPosition()
+{
+    testContext->m_context.initialPositions[&testContext->m_appSrcAudio].emplace_back(
+        firebolt::rialto::server::SegmentData{kPosition, kResetTime, kAppliedRate, kStopPosition});
+}
+
+void GenericTasksTestsBase::shouldAttachAllAudioSamplesWithDelay()
+{
+    testContext->m_context.streamPosition = kItHappenedInThePast - 10;
+    std::shared_ptr<firebolt::rialto::CodecData> kNullCodecData{};
+    EXPECT_CALL(testContext->m_gstPlayer, createBuffer(_)).Times(2).WillRepeatedly(Return(&testContext->m_audioBuffer));
+    EXPECT_CALL(testContext->m_gstPlayer, updateAudioCaps(kSampleRate, kNumberOfChannels, kNullCodecData));
+    EXPECT_CALL(testContext->m_gstPlayer, updateAudioCaps(kSampleRate, kNumberOfChannels, kCodecDataBuffer));
+    EXPECT_CALL(testContext->m_gstPlayer,
+                addAudioClippingToBuffer(&testContext->m_audioBuffer, kClippingStart, kClippingEnd))
+        .Times(2);
+    EXPECT_CALL(testContext->m_gstPlayer, attachData(MediaSourceType::AUDIO)).Times(2);
+    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaDataWithDelay(MediaSourceType::AUDIO));
+}
+
+void GenericTasksTestsBase::shouldRequestAudioData()
+{
+    EXPECT_CALL(testContext->m_gstPlayer, notifyNeedMediaData(MediaSourceType::AUDIO));
+}
+
+void GenericTasksTestsBase::checkNewAudioSourceAttached()
+{
+    auto audioStreamIt{testContext->m_context.streamInfo.find(firebolt::rialto::MediaSourceType::AUDIO)};
+    ASSERT_NE(testContext->m_context.streamInfo.end(), audioStreamIt);
+
+    EXPECT_TRUE(audioStreamIt->second.isDataNeeded);
+    EXPECT_FALSE(testContext->m_context.audioSourceRemoved);
+}
+
+void GenericTasksTestsBase::shouldInvalidateActiveAudioRequests()
+{
+    EXPECT_CALL(testContext->m_gstPlayerClient, invalidateActiveRequests(firebolt::rialto::MediaSourceType::AUDIO));
+}
+
+void GenericTasksTestsBase::shouldUnrefAudioBuffer()
+{
+    EXPECT_CALL(*testContext->m_gstWrapper, gstBufferUnref(&testContext->m_audioBuffer));
+}
+
+void GenericTasksTestsBase::triggerRemoveSourceAudio()
+{
+    firebolt::rialto::server::tasks::generic::RemoveSource task{testContext->m_context, testContext->m_gstPlayer,
+                                                                &testContext->m_gstPlayerClient,
+                                                                testContext->m_gstWrapper,
+                                                                firebolt::rialto::MediaSourceType::AUDIO};
+    task.execute();
+}
+
+void GenericTasksTestsBase::triggerRemoveSourceVideo()
+{
+    firebolt::rialto::server::tasks::generic::RemoveSource task{testContext->m_context, testContext->m_gstPlayer,
+                                                                &testContext->m_gstPlayerClient,
+                                                                testContext->m_gstWrapper,
+                                                                firebolt::rialto::MediaSourceType::VIDEO};
+    task.execute();
+}
+
+void GenericTasksTestsBase::checkAudioSourceRemoved()
+{
+    EXPECT_TRUE(testContext->m_context.audioSourceRemoved);
+}
+
+void GenericTasksTestsBase::checkAudioSourceNotRemoved()
+{
+    EXPECT_FALSE(testContext->m_context.audioSourceRemoved);
+}
+
+void GenericTasksTestsBase::shouldReadAudioDataFromShmWithAvailableSpace()
+{
+    EXPECT_CALL(*testContext->m_dataReader, readData()).WillOnce(Invoke([&]() { return buildAudioSamples(); }));
+    EXPECT_CALL(*testContext->m_dataReader, isBufferFull()).WillOnce(Return(false));
 }

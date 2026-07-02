@@ -64,6 +64,7 @@ void GstGenericPlayerTestCommon::gstPlayerWillBeDestroyed()
         EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(sink)).RetiresOnSaturation();
     }
     EXPECT_CALL(*m_gstWrapperMock, gstObjectUnref(&m_pipeline));
+    EXPECT_CALL(*m_glibWrapperMock, gThreadPoolStopUnusedThreads());
 }
 
 void GstGenericPlayerTestCommon::expectShutdown()

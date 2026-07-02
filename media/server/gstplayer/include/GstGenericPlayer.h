@@ -111,6 +111,7 @@ public:
     virtual ~GstGenericPlayer();
 
     void attachSource(const std::unique_ptr<IMediaPipeline::MediaSource> &mediaSource) override;
+    void removeSource(const MediaSourceType &mediaSourceType) override;
     void allSourcesAttached() override;
     void play(bool &async) override;
     void pause() override;
@@ -170,6 +171,7 @@ private:
     void connectDecoderSignals(const MediaSourceType &mediaSourceType) override;
     bool setUseBuffering() override;
     void notifyNeedMediaData(const MediaSourceType mediaSource) override;
+    void notifyNeedMediaDataWithDelay(const MediaSourceType mediaSource) override;
     GstBuffer *createBuffer(const IMediaPipeline::MediaSegment &mediaSegment) const override;
     void attachData(const firebolt::rialto::MediaSourceType mediaType) override;
     void updateAudioCaps(int32_t rate, int32_t channels, const std::shared_ptr<CodecData> &codecData) override;
