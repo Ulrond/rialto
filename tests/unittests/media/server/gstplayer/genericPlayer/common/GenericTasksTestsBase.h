@@ -52,6 +52,21 @@ using ::testing::StrictMock;
 class GenericTasksTestsBase : public ::testing::Test
 {
 public:
+    // grafted from upstream #530 (RemoveSource / audio-source-removal helpers)
+    void checkAudioSourceNotRemoved();
+    void checkAudioSourceRemoved();
+    void checkNewAudioSourceAttached();
+    void setContextAudioInitialPosition();
+    void setContextNeedDataAudioOnly();
+    void shouldAttachAllAudioSamplesWithDelay();
+    void shouldInvalidateActiveAudioRequests();
+    void shouldReadAudioDataFromShmWithAvailableSpace();
+    void shouldRequestAudioData();
+    void shouldUnrefAudioBuffer();
+    void triggerRemoveSourceAudio();
+    void triggerRemoveSourceVideo();
+    void setContextSourceNull();
+    void setContextAudioSourceRemoved();
     GenericTasksTestsBase();
     virtual ~GenericTasksTestsBase();
 
@@ -377,6 +392,7 @@ private:
     template <typename T> void expectSetProperty(const std::string &propertyName, const T &value);
     void expectPropertyDoesntExist(const std::string &propertyName);
     std::string getFadeString(double targetVolume, uint32_t volumeDuration, firebolt::rialto::EaseType easeType);
+
 };
 
 #endif // GENERIC_TASKS_TESTS_BASE_H_
