@@ -105,6 +105,10 @@ add_gtests(RialtoServerGstPlayerUnitTests
     platform/LinuxPlatformBackendTest.cpp
     platform/PlatformBackendLoaderTest.cpp
 
+    #Per-SoC shim (GenericGstBackend) parity oracle + the SoC-free core under test
+    platform/GenericGstBackendTest.cpp
+    ${CMAKE_SOURCE_DIR}/examples/platform-backends/common/GenericGstBackend.cpp
+
     #GstSrc unittests
     rialtoSrc/CreateTest.cpp
     rialtoSrc/InitTest.cpp
@@ -146,6 +150,7 @@ target_include_directories(RialtoServerGstPlayerUnitTests
 
         genericPlayer/common/
         webAudioPlayer/common/
+        ${CMAKE_SOURCE_DIR}/examples/platform-backends/common
 
 )
 
