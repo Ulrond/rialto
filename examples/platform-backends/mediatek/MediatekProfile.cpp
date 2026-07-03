@@ -17,9 +17,10 @@
  * limitations under the License.
  */
 
-// MediaTek: ABI-conformant stub. Real elements exist in rdk-e/gst-plugins-soc-mediatek
-// (gstmtkaudiosink, mtk video sink). SoC audio ops delegated to rdk_gstreamer_utils_mtk.so.
-// Fields marked TBD are placeholders to be confirmed against the vendor lib (Slice E).
+// MediaTek. Deltas sourced from the dual-decode TRD-per-soc-pipeline-analysis, rdk-e/gst-plugins-soc-mediatek, and
+// rdk-e/rdk-gstreamer-utils-mtk. Audio: mtkaudiosink (audio-master — `switchToAudioMasterMode_soc`), fed via
+// audioconvert (split decode). Video: westerossink (embeds the decoder; plane-bound). SoC audio ops delegate to
+// rdk_gstreamer_utils_mtk.so. Real-HW certification against #7 confirms the final values.
 #include "PlatformBackendEntry.h"
 #include "SocProfile.h"
 
@@ -34,12 +35,12 @@ const SocProfile kProfile = []
     SocProfile p;
     p.name = "mediatek";
     p.audioSinkFactory = "mtkaudiosink";
-    p.videoSinkFactory = "mtkvideosink";
-    p.audioTopology = AudioTopology::SplitDecode; // TBD: confirm against the vendor lib
+    p.videoSinkFactory = "westerossink";
+    p.audioTopology = AudioTopology::SplitDecode;
     p.rateStrategy = RateStrategy::InstantRateEvent;
-    p.videoMaster = true; // TBD: confirm master role
+    p.videoMaster = false; // audio-master
     p.socAudioPath = true;
-    p.bindsVideoPlane = true; // TBD: confirm plane-binding mechanism
+    p.bindsVideoPlane = true;
     return p;
 }();
 } // namespace

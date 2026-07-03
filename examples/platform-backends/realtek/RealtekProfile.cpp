@@ -17,9 +17,11 @@
  * limitations under the License.
  */
 
-// Realtek: ABI-conformant stub. Audio via rtkaudiosink, video via rtkv1sink. SoC audio ops delegated
-// to rdk_gstreamer_utils_realtek.so. Fields marked TBD are placeholders to be confirmed against the
-// vendor lib (Slice E).
+// Realtek. Deltas sourced from the dual-decode TRD-per-soc-pipeline-analysis and rdk-e/rdk-gstreamer-utils-realtek.
+// Audio: rtkaudiosink (audio-master — `avsync-audio-skip` / `setAudioMasterSkip`), fed via audioconvert (split
+// decode). NB: RTK additionally needs `audioresample` + `volume` in the audio tail (per TRD) — not yet modelled by
+// SocProfile; a topology-hook extension for #7. Video: westerossink (embeds the decoder; plane-bound). SoC audio ops
+// delegate to rdk_gstreamer_utils_realtek.so. Real-HW certification against #7 confirms the final values.
 #include "PlatformBackendEntry.h"
 #include "SocProfile.h"
 
@@ -34,12 +36,12 @@ const SocProfile kProfile = []
     SocProfile p;
     p.name = "realtek";
     p.audioSinkFactory = "rtkaudiosink";
-    p.videoSinkFactory = "rtkv1sink";
-    p.audioTopology = AudioTopology::SplitDecode; // TBD: confirm against the vendor lib
+    p.videoSinkFactory = "westerossink";
+    p.audioTopology = AudioTopology::SplitDecode;
     p.rateStrategy = RateStrategy::InstantRateEvent;
-    p.videoMaster = true; // TBD: confirm master role
+    p.videoMaster = false; // audio-master
     p.socAudioPath = true;
-    p.bindsVideoPlane = true; // TBD: confirm plane-binding mechanism
+    p.bindsVideoPlane = true;
     return p;
 }();
 } // namespace

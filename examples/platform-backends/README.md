@@ -59,9 +59,12 @@ shipped shims: the mocked-unit image has core+base GStreamer but no vendor/autod
 
 ## Status
 
-`linux/` and `amlogic/` carry real deltas. `broadcom/`, `mediatek/`, and `realtek/` are ABI-conformant
-stubs — their `SocProfile` fields marked `TBD` are placeholders to confirm against the vendor lib before
-certification (issue #13 Slice E).
+All five profiles carry deltas sourced from the dual-decode `TRD-per-soc-pipeline-analysis` and the
+`rdk-e/rdk-gstreamer-utils-<soc>` libs: every SoC is **audio-master** (`switchToAudioMasterMode_soc` /
+`avsync-audio-skip`) except the Linux reference (video-master); AML/MTK/RTK use plane-bound `westerossink`
+for video (BCM has its own `brcmvideodecoder`/`brcmvideosink`); audio is `audioconvert`→per-SoC sink
+(split). Values are best-effort pending real-HW certification against #7 (RTK's extra `audioresample`+
+`volume` tail is noted as a future `SocProfile` topology hook).
 
 ## Extension points
 

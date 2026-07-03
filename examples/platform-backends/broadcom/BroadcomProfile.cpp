@@ -17,9 +17,10 @@
  * limitations under the License.
  */
 
-// Broadcom: ABI-conformant stub. Audio via brcmaudiosink (MS12), plane-bound westerossink for video,
-// SoC audio ops delegated to rdk_gstreamer_utils_brcm.so. Fields marked TBD are placeholders to be
-// confirmed against the vendor lib before this stub is certified (Slice E).
+// Broadcom. Deltas sourced from the dual-decode TRD-per-soc-pipeline-analysis and rdk-e/rdk-gstreamer-utils-brcm.
+// Audio: brcmaudiosink (audio-master — `switchToAudioMasterMode_soc`), fed via audioconvert (split decode). Video:
+// BCM is the outlier with its own brcmvideodecoder/brcmvideosink, but the RDK-common path is westerossink (plane-bound).
+// SoC audio ops delegate to rdk_gstreamer_utils_brcm.so. Real-HW certification against #7 confirms the final values.
 #include "PlatformBackendEntry.h"
 #include "SocProfile.h"
 
@@ -34,10 +35,10 @@ const SocProfile kProfile = []
     SocProfile p;
     p.name = "broadcom";
     p.audioSinkFactory = "brcmaudiosink";
-    p.videoSinkFactory = "westerossink";
-    p.audioTopology = AudioTopology::SplitDecode; // TBD: confirm fused vs split against the vendor lib
+    p.videoSinkFactory = "westerossink"; // BCM-specific alternative: brcmvideosink (its own decoder path)
+    p.audioTopology = AudioTopology::SplitDecode;
     p.rateStrategy = RateStrategy::InstantRateEvent;
-    p.videoMaster = true; // TBD: confirm master role
+    p.videoMaster = false; // audio-master
     p.socAudioPath = true;
     p.bindsVideoPlane = true;
     return p;
