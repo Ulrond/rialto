@@ -61,14 +61,16 @@ target_include_directories(rialto-platform-linux PRIVATE
 
 target_link_libraries(rialto-platform-linux PRIVATE ${GST_LIBRARIES})
 
-# Publish the ABI header surface so a per-platform repo can install + build against it: the
-# backend contract (IPlatformBackend.h) and the audio-ops wrapper interface it delegates through
-# (IRdkGstreamerUtilsWrapper.h). Both install flat into the same dir — a backend adds one
-# -I<prefix>/include/rialto-platform-abi and needs no Rialto source checkout.
+# Publish the ABI header surface so a per-platform repo can install + build against it: the backend
+# contract (IPlatformBackend.h) and the injected wrapper interfaces the backend delegates live-graph
+# ops through — RdkGstreamerUtils (SoC audio ops), Gst, and Glib. All install flat into the same dir —
+# a backend adds one -I<prefix>/include/rialto-platform-abi and needs no Rialto source checkout.
 install(
         FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/interface/IPlatformBackend.h
             ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface/IRdkGstreamerUtilsWrapper.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface/IGstWrapper.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface/IGlibWrapper.h
         DESTINATION include/rialto-platform-abi
         )
 
