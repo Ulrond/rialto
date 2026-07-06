@@ -39,10 +39,14 @@ pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-app-1.0 gstreamer-audio-1
 # entrypoints, and kPlatformBackendAbiVersion) WITHOUT vendoring the core. It is an INTERFACE
 # target: no compiled objects, just the header surface. IPlatformBackend.h includes the
 # MediaCommon.h public header, so that include dir is part of the published surface too.
+# A backend also delegates live-graph audio ops through IRdkGstreamerUtilsWrapper, so that
+# interface header is part of the published surface as well — a backend builds against the
+# packaged ABI alone, with no Rialto source checkout.
 add_library(rialto-platform-abi INTERFACE)
 target_include_directories(rialto-platform-abi INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/interface
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../public/include)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../public/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface)
 
 add_library(rialto-platform-linux SHARED
     source/LinuxPlatformBackend.cpp)
@@ -53,14 +57,18 @@ target_link_libraries(rialto-platform-linux PRIVATE rialto-platform-abi)
 target_include_directories(rialto-platform-linux PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface
     ${GST_INCLUDE_DIRS})
 
 target_link_libraries(rialto-platform-linux PRIVATE ${GST_LIBRARIES})
 
-# Publish the ABI header so a per-platform repo can install + build against it.
+# Publish the ABI header surface so a per-platform repo can install + build against it: the
+# backend contract (IPlatformBackend.h) and the audio-ops wrapper interface it delegates through
+# (IRdkGstreamerUtilsWrapper.h). Both install flat into the same dir — a backend adds one
+# -I<prefix>/include/rialto-platform-abi and needs no Rialto source checkout.
 install(
-        FILES ${CMAKE_CURRENT_SOURCE_DIR}/interface/IPlatformBackend.h
+        FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/interface/IPlatformBackend.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/../../../wrappers/interface/IRdkGstreamerUtilsWrapper.h
         DESTINATION include/rialto-platform-abi
         )
 
